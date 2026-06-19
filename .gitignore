@@ -1,0 +1,59 @@
+# Environment & secrets
+.env
+*.env.local
+
+# Data & databases
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# ML artefacts & large data
+*.parquet
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Temporary / backtest output
+*.csv
+tuning_results.json
+horizon_tuning.json

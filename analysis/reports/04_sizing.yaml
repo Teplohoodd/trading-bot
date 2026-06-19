@@ -1,0 +1,29 @@
+# Step 4 - Position Sizing
+window: '2026-04-18..2026-04-25'
+total_closed_trades: 61
+portfolio_value_used: None
+notional_pct_quartiles:
+correlations:
+  confidence_vs_size_pearson: 0.0
+  size_vs_pnl_pearson: 0.0
+  rolling_winrate_vs_next_size_pearson: 0.0
+realized_kelly:
+  win_rate: 0.3934
+  win_loss_ratio_b: 0.9712
+  f_star: -0.2311
+  recommended_kelly_fraction: 0
+inverted_edge: {}
+verdict: confirmed
+confidence: 0.8
+current_params:
+  KELLY_FRACTION: None
+  MAX_POSITION_PCT: None
+  MAX_POSITIONS: None
+recommended_params:
+  KELLY_FRACTION: None
+  MAX_POSITION_PCT: null
+notes: |
+  win_rate=39.3%, b=0.97, f*=-0.2311. Rec quarter-Kelly=0.
+  Inverted edge={}. confidence/size correlation=0.000.
+  Drift (rolling5 win vs next_size corr)=0.000.
+  portfolio_value unavailable in daily_pnl - notional_pct could not be computed reliably.

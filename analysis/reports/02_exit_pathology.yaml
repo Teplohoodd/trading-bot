@@ -1,0 +1,68 @@
+# Step 2 - Exit Pathology
+window: '2026-04-18..2026-04-25'
+total_closed_trades: 61
+exit_reason_histogram:
+  signal_reversal:
+    count: 38
+    pct_of_total: 0.623
+    mean_realized_pnl_pct: 0.2376
+    median_pnl_pct: 0.565
+    hit_rate: 0.553
+    mean_hold_hours: 15.18
+  external_close:
+    count: 23
+    pct_of_total: 0.377
+    mean_realized_pnl_pct: -1.1274
+    median_pnl_pct: -1.47
+    hit_rate: 0.13
+    mean_hold_hours: 13.62
+    stop_violations_count: 10
+  stop_loss: {count: 0, note: never_fired}
+  take_profit: {count: 0, note: never_fired}
+  trailing_stop: {count: 0, note: never_fired}
+  time_exit: {count: 0, note: never_fired}
+hold_hours:
+  p25: 3.46
+  p50: 11.57
+  p75: 21.06
+  p90: 27.86
+external_close_stop_proximity:
+  stop_violated_count: 10
+  dist_to_stop_p50_pct: 0.174
+  dist_to_stop_p90_pct: 3.042
+premature_trailing:
+  count: 0
+  note: trailing_stop_exit_reason_never_appears
+late_time_exit:
+  count: 0
+  note: time_exit_reason_never_appears
+verdict: confirmed
+confidence: 0.95
+current_params:
+  TRAILING_STOP_ACTIVATION_FRAC: None
+  TRAILING_STOP_ATR_MULT: None
+  MIN_TARGET_PROGRESS_FRAC: None
+  TB_MAX_HOLD: None
+  TB_MAX_HOLD_FUTURES: None
+recommended_params:
+  TRAILING_STOP_ACTIVATION_FRAC: null
+  TRAILING_STOP_ATR_MULT: null
+  MIN_TARGET_PROGRESS_FRAC: null
+  TB_MAX_HOLD: null
+  TB_MAX_HOLD_FUTURES: null
+critical_bug: |
+  100% of exits are signal_reversal (38) or external_close (23).
+  stop_loss, take_profit, trailing_stop, time_exit NEVER fire in 61 trades.
+  external_close likely = manual Telegram /sell. 10 external_closes
+  exited BELOW the configured stop_loss level (meaning the position rode past its
+  stop before being manually closed). This is the primary risk defect.
+  Hypothesis: stop/TP orders are stored in DB but NOT submitted to broker as
+  actual exchange stop orders, so they only trigger in the software position_monitor_loop.
+  If the bot restarts or is paused, stops are lost. Also the position_monitor_loop
+  may not be running reliably (check engine.py _position_monitor_loop).
+notes: |
+  CRITICAL: No automated stop/TP/trailing/time exits ever fired. All exits either
+  manual (external_close) or ML signal reversal. Mean pnl_pct=-0.2770%.
+  signal_reversal mean=0.2376% (hit=55%).
+  external_close mean=-1.1274% (hit=13%).
+  The stop/TP/trailing machinery in _position_monitor_loop must be audited and fixed.

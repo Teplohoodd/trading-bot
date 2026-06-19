@@ -1,0 +1,38 @@
+# Step 1 - Entry Quality
+window: '2026-04-18..2026-04-25'
+total_closed_trades: 61
+note: candle_cache_empty_so_zscore_unavailable_used_confidence_and_stop_dist_proxy
+tight_stop_trades:
+  count: 0
+  mean_pnl_pct: nan
+  hit_rate: nan
+normal_stop_trades:
+  count: 61
+  mean_pnl_pct: -0.277
+  hit_rate: 0.393
+confidence_pnl_spearman: -0.0798
+confidence_pnl_spearman_p: 0.5411
+pnl_by_confidence_quartile:
+  q1: {confidence_range: [0.602, 0.655], mean_pnl_pct: -0.1594, count: 16}
+  q2: {confidence_range: [0.657, 0.748], mean_pnl_pct: -0.2973, count: 15}
+  q3: {confidence_range: [0.754, 0.817], mean_pnl_pct: -0.1127, count: 15}
+  q4: {confidence_range: [0.818, 0.918], mean_pnl_pct: -0.5467, count: 15}
+top_3_worst_trades: [42, 77, 84]
+verdict: suspected
+confidence: 0.6
+current_params:
+  SIGNAL_THRESHOLD: None
+  SIGNAL_THRESHOLD_FUTURES: None
+  ATR_FILTER_MEDIAN_MULT: None
+recommended_params:
+  SIGNAL_THRESHOLD: None
+  SIGNAL_THRESHOLD_FUTURES: null
+  ATR_FILTER_MEDIAN_MULT: null
+notes: |
+  Candle cache is empty so z-score bucketing unavailable. Used proxies: confidence vs pnl_pct correlation,
+  stop-distance proxy (tight stop = potentially late entry), time-of-day analysis.
+  Spearman(confidence, pnl_pct)=-0.0798 (p=0.5411). Negative r means higher confidence scores
+  do NOT predict better outcomes - threshold may be too permissive or model needs retraining.
+  All 61 trades are shares (no futures in window). Mean pnl_pct=-0.2770%.
+  Tight-stop trades (likely late entries) mean_pnl=nan% vs
+  normal=-0.2770%.
