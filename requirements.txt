@@ -1,4 +1,7 @@
-tinkoff-investments>=0.2.0b59
+# T-Bank official SDK (successor of tinkoff-investments).
+# Install from the T-Bank package registry:
+#   pip install t-tech-investments --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple
+t-tech-investments>=1.49.2
 python-telegram-bot>=20.7
 lightgbm>=4.0.0
 pandas>=2.0.0

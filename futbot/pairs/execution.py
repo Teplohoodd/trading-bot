@@ -19,7 +19,7 @@ import logging
 import math
 import time
 
-from tinkoff.invest import OrderDirection
+from t_tech.invest import OrderDirection
 
 from futbot.utils import commissions as comm
 

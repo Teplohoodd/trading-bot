@@ -29,8 +29,8 @@ logging.disable(logging.CRITICAL)
 
 from config.settings import Settings
 from core.broker import BrokerClient
-from tinkoff.invest import CandleInterval
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import CandleInterval
+from t_tech.invest.utils import quotation_to_decimal
 from futbot.pairs.execution import compute_lots, compute_two_leg_pnl
 
 PORTFOLIOS = [50_000, 300_000, 600_000]

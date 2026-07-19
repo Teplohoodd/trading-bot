@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
-from tinkoff.invest import (
+from t_tech.invest import (
     AsyncClient,
     CandleInterval,
     OrderDirection,
@@ -19,7 +19,7 @@ from tinkoff.invest import (
     InstrumentIdType,
     GetOrderBookResponse,
 )
-from tinkoff.invest.utils import quotation_to_decimal, decimal_to_quotation
+from t_tech.invest.utils import quotation_to_decimal, decimal_to_quotation
 
 from utils.helpers import money_to_decimal
 
@@ -79,10 +79,20 @@ class BrokerClient:
     def account_id(self) -> str:
         return self._account_id
 
+    # t-tech SDK (successor of tinkoff-investments) defaults to
+    # invest-public-api.tbank.ru, whose TLS cert chains to the Russian Trusted
+    # Root CA — absent from grpc/certifi trust stores → CERTIFICATE_VERIFY_FAILED.
+    # Pin the connection to the legacy host (HARICA cert, internationally
+    # trusted) and force the SNI/cert name to match.  Same IP, only cert differs.
+    _API_HOST = "invest-public-api.tinkoff.ru:443"
+    _SSL_OPTS = [("grpc.ssl_target_name_override", "invest-public-api.tinkoff.ru")]
+
     async def connect(self):
         """Open async gRPC channel."""
         try:
-            self._client = AsyncClient(self._token, app_name=self._app_name)
+            self._client = AsyncClient(
+                self._token, target=self._API_HOST, options=self._SSL_OPTS,
+                app_name=self._app_name)
             self._services = await self._client.__aenter__()
             self._reconnect_delay = 1.0
             logger.info("Broker connected")

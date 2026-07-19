@@ -28,7 +28,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from tinkoff.invest import (
+from t_tech.invest import (
     AsyncClient,
     MarketDataRequest,
     SubscribeOrderBookRequest,
@@ -41,7 +41,7 @@ from tinkoff.invest import (
     CandleInstrument,
     TradeDirection,
 )
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest.utils import quotation_to_decimal
 
 logger = logging.getLogger("futbot.scalp.stream")
 
@@ -109,7 +109,7 @@ class StreamManager:
         catches up over time).
         """
         from datetime import datetime, timedelta, timezone
-        from tinkoff.invest import CandleInterval
+        from t_tech.invest import CandleInterval
 
         async def _fetch(interval, hours, target_deque, label):
             try:

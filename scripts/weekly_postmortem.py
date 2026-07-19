@@ -27,15 +27,15 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sci_stats
 
-from tinkoff.invest import CandleInterval
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import CandleInterval
+from t_tech.invest.utils import quotation_to_decimal
 
 from config.settings import Settings
 from core.broker import BrokerClient
 from database.db import Repository
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-logging.getLogger("tinkoff.invest.logging").setLevel(logging.WARNING)
+logging.getLogger("t_tech.invest.logging").setLevel(logging.WARNING)
 log = logging.getLogger("postmortem")
 
 REPORTS = Path("analysis/reports")

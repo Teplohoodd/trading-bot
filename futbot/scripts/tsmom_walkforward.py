@@ -29,13 +29,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from config.settings import Settings
 from core.broker import BrokerClient
-from tinkoff.invest import CandleInterval
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import CandleInterval
+from t_tech.invest.utils import quotation_to_decimal
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("tinkoff").setLevel(logging.WARNING)
+logging.getLogger("t_tech").setLevel(logging.WARNING)
 logger = logging.getLogger("tsmom_wf")
 
 UNIVERSE = [

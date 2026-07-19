@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
-from tinkoff.invest import CandleInterval
+from t_tech.invest import CandleInterval
 
 from strategy.base import BaseStrategy, Signal, ExitSignal
 from analysis.features import build_features, FEATURE_NAMES

@@ -134,8 +134,8 @@ class BreakdownBot:
     # ── data ─────────────────────────────────────────────────────────────
     async def _stock_bars(self, figi: str) -> pd.DataFrame | None:
         """Hourly candles → resampled BD_BAR_HOURS bars, last CLOSED only."""
-        from tinkoff.invest.schemas import CandleInterval
-        from tinkoff.invest.utils import quotation_to_decimal
+        from t_tech.invest.schemas import CandleInterval
+        from t_tech.invest.utils import quotation_to_decimal
 
         now = datetime.now(timezone.utc)
         days = max(20, (self.settings.BD_SMA_BARS * self.settings.BD_BAR_HOURS) // 12)
@@ -248,7 +248,7 @@ class BreakdownBot:
             if not await self._margin_ok(fut, fut_px):
                 logger.warning(f"[breakdown] {stock}: margin block")
                 return
-            from tinkoff.invest.schemas import OrderDirection, StopOrderDirection
+            from t_tech.invest.schemas import OrderDirection, StopOrderDirection
             from decimal import Decimal
 
             res = await self.broker.post_market_order_with_fill(
@@ -308,7 +308,7 @@ class BreakdownBot:
         paper = bool(row["paper"])
         fill = price
         if not paper:
-            from tinkoff.invest.schemas import OrderDirection
+            from t_tech.invest.schemas import OrderDirection
 
             # RACE GUARD via BROKER POSITION (not the stop list — that mis-fired
             # on trend's ROSN).  breakdown is always SHORT, so "flat" = qty>=0.

@@ -5,8 +5,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from tinkoff.invest import CandleInterval, OrderDirection, StopOrderDirection
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import CandleInterval, OrderDirection, StopOrderDirection
+from t_tech.invest.utils import quotation_to_decimal
 
 from core.broker import BrokerClient
 from risk.manager import RiskManager
@@ -672,7 +672,7 @@ class TradingEngine:
         settings.ORDER_EXECUTION_MODE. Falls back to market if limit
         doesn't fill within LIMIT_ORDER_TIMEOUT.
         """
-        from tinkoff.invest import OrderDirection, StopOrderDirection
+        from t_tech.invest import OrderDirection, StopOrderDirection
 
         order_dir = (
             OrderDirection.ORDER_DIRECTION_BUY
@@ -720,7 +720,7 @@ class TradingEngine:
         order_dir,
     ) -> dict:
         """Inner body of _execute_trade — runs inside self._entry_lock."""
-        from tinkoff.invest import StopOrderDirection
+        from t_tech.invest import StopOrderDirection
 
         try:
             exec_mode = self.settings.ORDER_EXECUTION_MODE
@@ -1456,7 +1456,7 @@ class TradingEngine:
                     # Fall back to last market price only if no matching op found.
                     exit_price = 0.0
                     try:
-                        from tinkoff.invest import OperationType
+                        from t_tech.invest import OperationType
 
                         from_dt = datetime.now(timezone.utc) - timedelta(minutes=90)
                         ops = await self.broker.get_operations(from_dt=from_dt)
@@ -1488,7 +1488,7 @@ class TradingEngine:
                             op = figi_ops[0]
                             price_q = getattr(op, "price", None)
                             if price_q is not None:
-                                from tinkoff.invest.utils import quotation_to_decimal
+                                from t_tech.invest.utils import quotation_to_decimal
 
                                 exit_price = float(quotation_to_decimal(price_q))
                                 logger.info(

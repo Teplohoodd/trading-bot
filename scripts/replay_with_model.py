@@ -29,10 +29,10 @@ from config.settings import Settings
 from core.broker import BrokerClient
 from database.db import Repository
 from ml.model import LGBMModel
-from tinkoff.invest import CandleInterval
+from t_tech.invest import CandleInterval
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-logging.getLogger("tinkoff.invest.logging").setLevel(logging.WARNING)
+logging.getLogger("t_tech.invest.logging").setLevel(logging.WARNING)
 log = logging.getLogger("replay_model")
 
 

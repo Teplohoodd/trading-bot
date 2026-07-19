@@ -31,8 +31,8 @@ import pandas as pd
 # Allow running as a script
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tinkoff.invest import CandleInterval  # noqa: E402
-from tinkoff.invest.utils import quotation_to_decimal  # noqa: E402
+from t_tech.invest import CandleInterval  # noqa: E402
+from t_tech.invest.utils import quotation_to_decimal  # noqa: E402
 
 from core.broker import BrokerClient  # noqa: E402
 from futbot.config import FutSettings as Settings  # noqa: E402

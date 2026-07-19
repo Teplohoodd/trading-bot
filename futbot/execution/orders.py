@@ -18,7 +18,7 @@ import logging
 import time
 from decimal import Decimal
 
-from tinkoff.invest import OrderDirection
+from t_tech.invest import OrderDirection
 
 logger = logging.getLogger("futbot.orders")
 

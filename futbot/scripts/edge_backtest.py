@@ -43,15 +43,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from config.settings import Settings  # noqa: E402
 from core.broker import BrokerClient  # noqa: E402
-from tinkoff.invest import CandleInterval  # noqa: E402
-from tinkoff.invest.utils import quotation_to_decimal  # noqa: E402
+from t_tech.invest import CandleInterval  # noqa: E402
+from t_tech.invest.utils import quotation_to_decimal  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("tinkoff").setLevel(logging.WARNING)
+logging.getLogger("t_tech").setLevel(logging.WARNING)
 logger = logging.getLogger("edge_backtest")
 
 

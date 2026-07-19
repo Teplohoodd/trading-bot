@@ -30,7 +30,7 @@ async def main():
         format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("tinkoff").setLevel(logging.WARNING)
+    logging.getLogger("t_tech").setLevel(logging.WARNING)
     log = logging.getLogger("futbot.backtest_cli")
 
     days = int(sys.argv[1]) if len(sys.argv) > 1 else 90

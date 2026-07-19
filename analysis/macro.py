@@ -29,7 +29,7 @@ from typing import Optional
 
 import pandas as pd
 
-from tinkoff.invest import CandleInterval
+from t_tech.invest import CandleInterval
 
 logger = logging.getLogger(__name__)
 

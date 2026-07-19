@@ -35,8 +35,8 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from config.settings import Settings
 from core.broker import BrokerClient
-from tinkoff.invest import CandleInterval
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import CandleInterval
+from t_tech.invest.utils import quotation_to_decimal
 
 LEADER = "BTCUSDperpA"
 FOLLOWERS = [

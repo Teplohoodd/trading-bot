@@ -46,15 +46,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from config.settings import Settings
 from core.broker import BrokerClient
-from tinkoff.invest import AsyncClient
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import AsyncClient
+from t_tech.invest.utils import quotation_to_decimal
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("tinkoff").setLevel(logging.WARNING)
+logging.getLogger("t_tech").setLevel(logging.WARNING)
 logger = logging.getLogger("tick_rec")
 
 
@@ -124,7 +124,7 @@ async def _resolve_front_month(broker, base: str):
 
 async def _record_trades(client, db, figi: str, ticker: str):
     """Fetch the last hour of anonymous trades and insert any we haven't seen."""
-    from tinkoff.invest import TradeDirection
+    from t_tech.invest import TradeDirection
 
     try:
         now = datetime.now(timezone.utc)

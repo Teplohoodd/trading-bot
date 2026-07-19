@@ -369,7 +369,7 @@ class Screener:
         try:
             ob = await self.broker.get_order_book(figi, depth=10)
             if ob.bids and ob.asks:
-                from tinkoff.invest.utils import quotation_to_decimal as q2d
+                from t_tech.invest.utils import quotation_to_decimal as q2d
 
                 bid = float(q2d(ob.bids[0].price))
                 ask = float(q2d(ob.asks[0].price))

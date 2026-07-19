@@ -117,7 +117,7 @@ def evaluate(*, state, instrument, settings) -> SignalResult:
     if min_pi is None:
         return SignalResult(None, 0.0, {}, "no min_price_increment on instrument")
     try:
-        from tinkoff.invest.utils import quotation_to_decimal
+        from t_tech.invest.utils import quotation_to_decimal
 
         min_pi_f = float(quotation_to_decimal(min_pi))
     except Exception:

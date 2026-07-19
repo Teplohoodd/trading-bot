@@ -21,7 +21,7 @@ from database.db import Repository
 from ml.model import LGBMModel
 from ml.meta_model import MetaLabellingModel, build_meta_dataset, META_AUGMENT_FEATURES
 from config.settings import Settings
-from tinkoff.invest import CandleInterval
+from t_tech.invest import CandleInterval
 
 logger = logging.getLogger(__name__)
 

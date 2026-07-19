@@ -26,7 +26,7 @@ from ml.trainer import ModelTrainer
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 )
-logging.getLogger("tinkoff.invest.logging").setLevel(logging.WARNING)
+logging.getLogger("t_tech.invest.logging").setLevel(logging.WARNING)
 log = logging.getLogger("train_full")
 
 

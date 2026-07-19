@@ -6,8 +6,8 @@ from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from tinkoff.invest import OrderDirection, StopOrderDirection
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import OrderDirection, StopOrderDirection
+from t_tech.invest.utils import quotation_to_decimal
 
 from core.broker import BrokerClient
 from risk.spread_monitor import SpreadMonitor

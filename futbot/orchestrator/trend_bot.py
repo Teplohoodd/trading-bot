@@ -24,12 +24,12 @@ from decimal import Decimal
 
 import pandas as pd
 
-from tinkoff.invest import (
+from t_tech.invest import (
     CandleInterval,
     OrderDirection,
     StopOrderDirection,
 )
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest.utils import quotation_to_decimal
 
 from futbot.trend.config import TrendSettings
 from futbot.trend.db import TrendDB

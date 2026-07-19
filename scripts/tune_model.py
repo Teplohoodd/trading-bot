@@ -75,7 +75,7 @@ from analysis.macro import MacroProvider
 from analysis.screener import _candles_to_df
 from config.settings import Settings
 from core.broker import BrokerClient
-from tinkoff.invest import CandleInterval
+from t_tech.invest import CandleInterval
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 optuna.logging.set_verbosity(optuna.logging.WARNING)

@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.broker import BrokerClient  # noqa: E402
-from tinkoff.invest.utils import quotation_to_decimal  # noqa: E402
+from t_tech.invest.utils import quotation_to_decimal  # noqa: E402
 
 from futbot.scalp.config import ScalpSettings  # noqa: E402
 from futbot.scalp.db import ScalpDB  # noqa: E402
@@ -109,7 +109,7 @@ def setup_logging(settings: ScalpSettings):
         logging.FileHandler(settings.SCALP_LOG_PATH, encoding="utf-8"),
     ]
     logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers)
-    for noisy in ("httpx", "telegram", "apscheduler", "grpc", "tinkoff"):
+    for noisy in ("httpx", "telegram", "apscheduler", "grpc", "t_tech"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
@@ -142,7 +142,7 @@ async def _place_entry(*, broker, figi, ticker, direction, lots, paper):
     if paper:
         oid = f"paper-scalp-{direction}-{figi[-6:]}-{int(time.time())}"
         return oid, last_p
-    from tinkoff.invest import OrderDirection
+    from t_tech.invest import OrderDirection
 
     side = (
         OrderDirection.ORDER_DIRECTION_BUY
@@ -158,7 +158,7 @@ async def _place_exit(*, broker, figi, entry_direction, lots, paper):
     if paper:
         oid = f"paper-scalp-exit-{figi[-6:]}-{int(time.time())}"
         return oid, last_p
-    from tinkoff.invest import OrderDirection
+    from t_tech.invest import OrderDirection
 
     side = (
         OrderDirection.ORDER_DIRECTION_SELL

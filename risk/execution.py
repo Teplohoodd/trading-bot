@@ -4,7 +4,7 @@ import asyncio
 import logging
 from decimal import Decimal
 
-from tinkoff.invest import OrderDirection
+from t_tech.invest import OrderDirection
 
 from core.broker import BrokerClient
 

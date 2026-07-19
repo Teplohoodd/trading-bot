@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
-from tinkoff.invest import CandleInterval
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import CandleInterval
+from t_tech.invest.utils import quotation_to_decimal
 
 from futbot.pairs.config import PairsSettings
 from futbot.pairs.db import PairsDB

@@ -27,8 +27,8 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.broker import BrokerClient  # noqa: E402
-from tinkoff.invest import CandleInterval  # noqa: E402
-from tinkoff.invest.utils import quotation_to_decimal  # noqa: E402
+from t_tech.invest import CandleInterval  # noqa: E402
+from t_tech.invest.utils import quotation_to_decimal  # noqa: E402
 
 from futbot.pairs.config import PairsSettings  # noqa: E402
 from futbot.pairs.db import PairsDB  # noqa: E402
@@ -66,7 +66,7 @@ def setup_logging(settings: PairsSettings):
             logging.FileHandler(settings.PAIRS_LOG_PATH, encoding="utf-8"),
         ],
     )
-    for n in ("httpx", "telegram", "tinkoff", "grpc"):
+    for n in ("httpx", "telegram", "t_tech", "grpc"):
         logging.getLogger(n).setLevel(logging.WARNING)
 
 

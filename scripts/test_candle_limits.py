@@ -10,12 +10,12 @@ from datetime import datetime, timedelta, timezone
 
 from config.settings import Settings
 from core.broker import BrokerClient
-from tinkoff.invest import CandleInterval
+from t_tech.invest import CandleInterval
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("probe")
 # Keep Tinkoff's INFO-level request spam out of the way
-logging.getLogger("tinkoff.invest.logging").setLevel(logging.WARNING)
+logging.getLogger("t_tech.invest.logging").setLevel(logging.WARNING)
 
 
 async def main():

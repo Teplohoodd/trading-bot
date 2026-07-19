@@ -39,14 +39,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config.settings import Settings
 from core.broker import BrokerClient
 from analysis.indicators import compute_indicators
-from tinkoff.invest import CandleInterval
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import CandleInterval
+from t_tech.invest.utils import quotation_to_decimal
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 )
 logger = logging.getLogger("bakeoff")
-logging.getLogger("tinkoff").setLevel(logging.WARNING)
+logging.getLogger("t_tech").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # ── Sample universe: top-10 liquid MOEX names ─────────────────────────────────

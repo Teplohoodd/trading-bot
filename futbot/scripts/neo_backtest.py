@@ -34,8 +34,8 @@ logging.disable(logging.CRITICAL)
 
 from config.settings import Settings
 from core.broker import BrokerClient
-from tinkoff.invest import CandleInterval
-from tinkoff.invest.utils import quotation_to_decimal
+from t_tech.invest import CandleInterval
+from t_tech.invest.utils import quotation_to_decimal
 from futbot.patterns.primitives import find_swings
 from futbot.patterns.detectors import detect_triple_tops, detect_triple_bottoms
 from futbot.patterns.portfolio import TUNED_PARAMS

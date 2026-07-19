@@ -48,8 +48,8 @@ TIMEOUT_BARS_1H = 48  # live timeout is 48 hourly bars — scale per TF
 async def fetch_all():
     from config.settings import Settings
     from core.broker import BrokerClient
-    from tinkoff.invest.schemas import CandleInterval
-    from tinkoff.invest.utils import quotation_to_decimal
+    from t_tech.invest.schemas import CandleInterval
+    from t_tech.invest.utils import quotation_to_decimal
 
     DATA.mkdir(parents=True, exist_ok=True)
     s = Settings()

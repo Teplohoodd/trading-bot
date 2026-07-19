@@ -56,7 +56,7 @@ def setup_logging(settings: OrchSettings):
             logging.FileHandler(settings.ORCH_LOG_PATH, encoding="utf-8"),
         ],
     )
-    for n in ("httpx", "telegram", "tinkoff", "grpc"):
+    for n in ("httpx", "telegram", "t_tech", "grpc"):
         logging.getLogger(n).setLevel(logging.WARNING)
 
 

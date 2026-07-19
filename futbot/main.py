@@ -57,7 +57,7 @@ def setup_logging(settings: FutSettings):
         logging.FileHandler(settings.FUTBOT_LOG_PATH, encoding="utf-8"),
     ]
     logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers)
-    for noisy in ("httpx", "telegram", "apscheduler", "grpc", "tinkoff"):
+    for noisy in ("httpx", "telegram", "apscheduler", "grpc", "t_tech"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

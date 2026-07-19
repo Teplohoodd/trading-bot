@@ -39,7 +39,7 @@ def quotation_to_decimal(quotation) -> Decimal:
 
 def decimal_to_quotation(value: Decimal):
     """Convert Decimal to tinkoff Quotation."""
-    from tinkoff.invest import Quotation
+    from t_tech.invest import Quotation
 
     units = int(value)
     nano = int((value - units) * Decimal("1000000000"))
