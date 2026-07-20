@@ -187,12 +187,13 @@ futbot/
   breakdown/      volume-breakdown short strategy
   trend/          pattern-breakout strategy
   carry/          calendar-spread carry (disabled)
+  pairs/          cointegration pairs strategy (disabled)
+  patterns/       chart-pattern detectors used by trend
   webapp/         Telegram Mini App (server + static front)
-  scripts/        one-off tools (reconcile, studies, migration)
+  telegram_*.py   notifier + command handlers
 core/broker.py    async t-tech gRPC wrapper (rate-limited, reconnecting)
-utils/, risk/, analysis/, ml/   helpers + legacy research engine
+config/settings.py   env-driven settings (pydantic)
+utils/            shared helpers
+scripts/watchdog.ps1   scheduled-task watchdog (restarts on stale log)
 data/             per-strategy SQLite DBs + logs (gitignored)
 ```
-
-The `core/engine.py` + `ml/` tree is an earlier monolithic ML-driven bot kept for
-research; the live system is the orchestrator described above.

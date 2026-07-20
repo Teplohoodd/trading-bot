@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>futbot</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root{
+    --bg:#0e1320; --card:#161d2e; --card2:#1c2438; --line:#232c44;
+    --txt:#e8ecf4; --mut:#8a94ab; --grn:#22c98a; --red:#ff5f6d; --acc:#5b8cff;
+    --r:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{background:var(--bg);color:var(--txt);
+    font:15px/1.45 -apple-system,'SF Pro Text',Segoe UI,Roboto,sans-serif;
+    min-height:100%;}
+  body{padding:12px 12px calc(64px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto}
+
+  /* header */
+  .hdr{display:flex;align-items:baseline;justify-content:space-between;padding:4px 2px 12px}
+  .hdr h1{font-size:17px;font-weight:600;letter-spacing:.2px}
+  .hdr h1 span{color:var(--acc)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--grn);margin-right:6px;vertical-align:1px}
+  .dot.dead{background:var(--red)}
+  .equity{font-size:13px;color:var(--mut)}
+  .equity b{color:var(--txt);font-size:15px}
+
+  /* kpi row */
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+  .kpi{background:var(--card);border-radius:var(--r);padding:10px 12px}
+  .kpi .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+  .kpi .v{font-size:17px;font-weight:600;margin-top:2px}
+  .pos{color:var(--grn)} .neg{color:var(--red)}
+
+  /* tabs */
+  .tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:rgba(14,19,32,.92);
+    backdrop-filter:blur(12px);border-top:1px solid var(--line);
+    padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:10}
+  .tab{flex:1;text-align:center;padding:7px 2px;border-radius:10px;color:var(--mut);
+    font-size:11px;cursor:pointer;user-select:none}
+  .tab .i{font-size:18px;display:block;margin-bottom:1px}
+  .tab.on{color:var(--txt);background:var(--card2)}
+  .page{display:none}.page.on{display:block}
+
+  /* cards */
+  .card{background:var(--card);border-radius:var(--r);padding:12px 14px;margin-bottom:10px}
+  .row{display:flex;justify-content:space-between;align-items:center}
+  .badge{font-size:10.5px;font-weight:600;border-radius:6px;padding:2px 7px;letter-spacing:.3px}
+  .b-sell{background:rgba(255,95,109,.15);color:var(--red)}
+  .b-buy{background:rgba(34,201,138,.15);color:var(--grn)}
+  .b-str{background:rgba(91,140,255,.14);color:var(--acc);margin-left:6px}
+  .mut{color:var(--mut);font-size:12.5px}
+  .big{font-size:16px;font-weight:600}
+
+  /* stop→target progress */
+  .prog{position:relative;height:6px;border-radius:3px;margin:12px 0 6px;
+    background:linear-gradient(90deg,var(--red),var(--card2) 30%,var(--card2) 70%,var(--grn))}
+  .prog i{position:absolute;top:-4px;width:3px;height:14px;border-radius:2px;background:#fff;
+    box-shadow:0 0 6px rgba(255,255,255,.7)}
+  .lvls{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mut)}
+
+  /* trades list */
+  .tr{display:flex;justify-content:space-between;align-items:center;padding:10px 2px;
+    border-bottom:1px solid var(--line)}
+  .tr:last-child{border-bottom:none}
+  .chip{font-size:10px;background:var(--card2);color:var(--mut);border-radius:5px;
+    padding:1px 6px;margin-left:6px}
+
+  /* feed */
+  .ev{display:flex;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:13px}
+  .ev:last-child{border-bottom:none}
+  .ev .ic{width:20px;text-align:center;flex:none}
+  .ev .t{color:var(--mut);font-size:11px;white-space:nowrap}
+  .ev .m{word-break:break-word;color:#c6cddd}
+
+  /* chart */
+  select{width:100%;background:var(--card);color:var(--txt);border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px;font-size:15px;margin-bottom:10px;
+    appearance:none;outline:none}
+  #chart{height:340px;border-radius:var(--r);overflow:hidden;background:var(--card)}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-top:8px;flex-wrap:wrap}
+  .legend b{font-weight:600}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{color:var(--mut);font-weight:500;font-size:11px;text-transform:uppercase;
+     letter-spacing:.4px;text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+  td{padding:8px 4px;border-bottom:1px solid var(--line)}
+  tr:last-child td{border-bottom:none}
+  #eqchart{height:200px;border-radius:var(--r);overflow:hidden;background:var(--card);margin-bottom:12px}
+  .sk{color:var(--mut);text-align:center;padding:30px 0;font-size:13px}
+  h3{font-size:13px;color:var(--mut);font-weight:600;text-transform:uppercase;
+     letter-spacing:.5px;margin:16px 2px 8px}
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <h1><span id="live" class="dot"></span>fut<span>bot</span></h1>
+    <div class="equity">капитал <b id="equity">—</b></div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">Сегодня</div><div class="v" id="k-today">—</div></div>
+    <div class="kpi"><div class="l">7 дней</div><div class="v" id="k-week">—</div></div>
+    <div class="kpi"><div class="l">Всего</div><div class="v" id="k-total">—</div></div>
+  </div>
+
+  <div id="p-pos" class="page on"><div id="positions" class="sk">Загрузка…</div></div>
+
+  <div id="p-chart" class="page">
+    <select id="stock"></select>
+    <div id="chart"></div>
+    <div class="legend" id="chart-legend"></div>
+  </div>
+
+  <div id="p-trades" class="page"><div id="trades" class="sk">Загрузка…</div></div>
+
+  <div id="p-stats" class="page">
+    <div id="eqchart"></div>
+    <h3>Стратегии</h3><div class="card" id="strat-table"></div>
+    <h3>Причины выхода</h3><div class="card" id="reason-table"></div>
+  </div>
+
+  <div id="p-feed" class="page"><div id="feed" class="sk">Загрузка…</div></div>
+
+  <div class="tabs">
+    <div class="tab on" data-p="pos"><span class="i">◧</span>Позиции</div>
+    <div class="tab" data-p="chart"><span class="i">▤</span>График</div>
+    <div class="tab" data-p="trades"><span class="i">≡</span>Сделки</div>
+    <div class="tab" data-p="stats"><span class="i">◔</span>Статистика</div>
+    <div class="tab" data-p="feed"><span class="i">◍</span>Лента</div>
+  </div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const $ = id => document.getElementById(id);
+const fmt = v => (v==null? '—' : (v>0?'+':'')+Math.round(v).toLocaleString('ru-RU')+' ₽');
+const cls = v => v>0?'pos':(v<0?'neg':'');
+
+/* tabs */
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on'); $('p-'+t.dataset.p).classList.add('on');
+  if (t.dataset.p==='chart') initChart();
+  if (t.dataset.p==='stats') loadStats();
+  if (t.dataset.p==='trades') loadTrades();
+  if (t.dataset.p==='feed') loadFeed();
+});
+
+async function j(u){ const r = await fetch(u); return r.json(); }
+
+/* summary */
+async function loadSummary(){
+  try{
+    const d = await j('/api/summary');
+    $('equity').textContent = d.equity? d.equity.toLocaleString('ru-RU')+' ₽' : '—';
+    const agg = k => Object.values(d.strategies).reduce((a,s)=>a+s[k],0);
+    const t=agg('today'), w=agg('week');
+    $('k-today').textContent=fmt(t); $('k-today').className='v '+cls(t);
+    $('k-week').textContent=fmt(w);  $('k-week').className='v '+cls(w);
+    $('k-total').textContent=fmt(d.realized_total);
+    $('k-total').className='v '+cls(d.realized_total);
+    $('live').className='dot';
+  }catch(e){ $('live').className='dot dead'; }
+}
+
+/* positions */
+async function loadPositions(){
+  try{
+    const rows = await j('/api/positions');
+    const el = $('positions');
+    if(!rows.length){ el.innerHTML='<div class="sk">Открытых позиций нет</div>'; return; }
+    el.innerHTML = rows.map(r=>{
+      const dirB = `<span class="badge ${r.direction==='sell'?'b-sell':'b-buy'}">${r.direction==='sell'?'SHORT':'LONG'} ×${r.lots}</span>`;
+      const held = ((Date.now()-Date.parse(r.entry_time))/36e5).toFixed(1);
+      const p = r.progress==null? '' :
+        `<div class="prog"><i style="left:${(r.progress*100).toFixed(1)}%"></i></div>
+         <div class="lvls"><span>стоп ${r.stop_price?.toFixed(2)}</span>
+           <span>цена ${r.price? r.price.toFixed(2):'—'}</span>
+           <span>цель ${r.target_price?.toFixed(2)}</span></div>`;
+      return `<div class="card">
+        <div class="row"><div><b class="big">${r.name}</b>
+          ${dirB}<span class="badge b-str">${r.strategy}</span></div>
+          <div class="big ${cls(r.upnl)}">${fmt(r.upnl)}</div></div>
+        <div class="row" style="margin-top:4px">
+          <span class="mut">${r.ticker} · вход ${r.entry_price?.toFixed(2)} · ${held}ч</span>
+          <span class="mut ${cls(r.chg_pct)}">${r.chg_pct==null?'':(r.chg_pct>0?'+':'')+r.chg_pct+'%'}</span></div>
+        ${p}</div>`;
+    }).join('');
+  }catch(e){ $('positions').innerHTML='<div class="sk">Ошибка загрузки</div>'; }
+}
+
+/* trades */
+async function loadTrades(){
+  const rows = await j('/api/trades?days=30');
+  const el = $('trades');
+  if(!rows.length){ el.innerHTML='<div class="sk">Сделок за 30 дней нет</div>'; return; }
+  el.innerHTML = '<div class="card">'+rows.map(r=>{
+    const d=(r.exit_time||'').slice(5,16).replace('T',' ');
+    const reason=(r.exit_reason||'').split('(')[0];
+    return `<div class="tr"><div><b>${r.name}</b>
+      <span class="chip">${r.strategy}</span><span class="chip">${reason}</span>
+      <div class="mut">${d} · ×${r.lots}</div></div>
+      <div class="big ${cls(r.pnl)}">${fmt(r.pnl)}</div></div>`;
+  }).join('')+'</div>';
+}
+
+/* feed */
+const ICON={open:'📉',close:'🏁',guard:'🛡',sys:'⚙️'};
+async function loadFeed(){
+  const rows = await j('/api/feed');
+  $('feed').innerHTML = rows.length? '<div class="card">'+rows.map(e=>
+    `<div class="ev"><div class="ic">${ICON[e.kind]||'•'}</div>
+      <div><div class="t">${e.ts.slice(5)} · ${e.src}</div>
+      <div class="m">${e.msg.replace(/</g,'&lt;')}</div></div></div>`).join('')+'</div>'
+    : '<div class="sk">Пусто</div>';
+}
+
+/* candle chart */
+let chart, series, priceLines=[], chartInit=false;
+async function initChart(){
+  if(!chartInit){
+    chartInit=true;
+    chart = LightweightCharts.createChart($('chart'),{
+      layout:{background:{color:'#161d2e'},textColor:'#8a94ab',fontSize:11},
+      grid:{vertLines:{color:'#1d2740'},horzLines:{color:'#1d2740'}},
+      timeScale:{timeVisible:true,borderColor:'#232c44'},
+      rightPriceScale:{borderColor:'#232c44'},
+      crosshair:{mode:0}, autoSize:true});
+    series = chart.addCandlestickSeries({
+      upColor:'#22c98a',downColor:'#ff5f6d',
+      wickUpColor:'#22c98a',wickDownColor:'#ff5f6d',borderVisible:false});
+    $('stock').onchange = ()=>loadCandles($('stock').value);
+  }
+  if(!$('stock').options.length){
+    const d = await j('/api/candles?stock=SBER');
+    $('stock').innerHTML = d.universe.map(s=>`<option ${s==='SBER'?'selected':''}>${s}</option>`).join('');
+    render(d);
+  } else loadCandles($('stock').value);
+}
+async function loadCandles(stock){ render(await j('/api/candles?stock='+stock)); }
+function render(d){
+  series.setData(d.candles);
+  priceLines.forEach(l=>series.removePriceLine(l)); priceLines=[];
+  let leg = `<span><b>${d.stock}</b> · 2ч · ${d.candles.length} баров</span>`;
+  if(d.levels){
+    const L=d.levels;
+    priceLines.push(series.createPriceLine({price:L.entry,color:'#5b8cff',lineStyle:2,title:'вход'}));
+    priceLines.push(series.createPriceLine({price:L.stop,color:'#ff5f6d',lineStyle:2,title:'стоп'}));
+    priceLines.push(series.createPriceLine({price:L.target,color:'#22c98a',lineStyle:2,title:'цель'}));
+    leg += ` <span style="color:#5b8cff">— вход ${L.entry.toFixed(2)}</span>
+             <span style="color:#ff5f6d">— стоп ${L.stop.toFixed(2)}</span>
+             <span style="color:#22c98a">— цель ${L.target.toFixed(2)}</span>`;
+  }
+  $('chart-legend').innerHTML = leg;
+  chart.timeScale().fitContent();
+}
+
+/* stats */
+let eqChart, eqInit=false;
+async function loadStats(){
+  const d = await j('/api/stats');
+  if(!eqInit){
+    eqInit=true;
+    eqChart = LightweightCharts.createChart($('eqchart'),{
+      layout:{background:{color:'#161d2e'},textColor:'#8a94ab',fontSize:10},
+      grid:{vertLines:{visible:false},horzLines:{color:'#1d2740'}},
+      timeScale:{visible:false},rightPriceScale:{borderColor:'#232c44'},autoSize:true});
+    eqChart.series = eqChart.addAreaSeries({
+      lineColor:'#5b8cff',topColor:'rgba(91,140,255,.25)',bottomColor:'rgba(91,140,255,0)',lineWidth:2});
+  }
+  eqChart.series.setData(d.curve.map((p,i)=>({time:i, value:p.v})));
+  eqChart.timeScale().fitContent();
+  const st=d.strategies;
+  $('strat-table').innerHTML = `<table><tr><th>Стратегия</th><th>n</th><th>Win</th><th>7д</th><th>Всего</th></tr>`+
+    Object.entries(st).map(([k,v])=>`<tr><td>${k}</td><td>${v.n}</td><td>${v.win}%</td>
+      <td class="${cls(v.week)}">${fmt(v.week)}</td><td class="${cls(v.net)}">${fmt(v.net)}</td></tr>`).join('')+'</table>';
+  $('reason-table').innerHTML = `<table><tr><th>Причина</th><th>n</th><th>P&L</th></tr>`+
+    Object.entries(d.reasons).sort((a,b)=>a[1].p-b[1].p).map(([k,v])=>
+      `<tr><td>${k}</td><td>${v.n}</td><td class="${cls(v.p)}">${fmt(v.p)}</td></tr>`).join('')+'</table>';
+}
+
+loadSummary(); loadPositions();
+setInterval(()=>{ loadSummary(); if($('p-pos').classList.contains('on')) loadPositions(); }, 30000);
+</script>
+</body>
+</html>
