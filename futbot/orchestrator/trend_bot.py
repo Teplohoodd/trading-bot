@@ -25,9 +25,7 @@ from decimal import Decimal
 import pandas as pd
 
 from t_tech.invest import (
-    CandleInterval,
-    OrderDirection,
-    StopOrderDirection,
+    CandleInterval, OrderDirection, StopOrderDirection,
 )
 from t_tech.invest.utils import quotation_to_decimal
 
@@ -35,10 +33,7 @@ from futbot.trend.config import TrendSettings
 from futbot.trend.db import TrendDB
 from futbot.trend import strategy as strat
 from futbot.trend.portfolio import (
-    PORTFOLIO,
-    core_portfolio,
-    tradeable_portfolio,
-    TrendEntry,
+    PORTFOLIO, core_portfolio, tradeable_portfolio, TrendEntry,
 )
 from futbot.utils import commissions as comm
 from futbot.telegram_notifier import Msg, MsgType
@@ -46,13 +41,12 @@ from futbot.telegram_notifier import Msg, MsgType
 # Pattern detector + whitelist
 from futbot.patterns.primitives import find_swings
 from futbot.patterns.detectors import (
-    detect_triple_tops,
-    detect_triple_bottoms,
+    detect_triple_tops, detect_triple_bottoms,
 )
 from futbot.patterns.portfolio import (
-    TUNED_PARAMS,
-    is_pattern_allowed,
+    TUNED_PARAMS, is_pattern_allowed,
 )
+
 
 logger = logging.getLogger("orchestrator.trend")
 
@@ -66,16 +60,16 @@ class ResolvedContract:
     expiration: datetime
     rpp: float
     lot_size: int
-    bb_n: int  # kept for legacy band_flip exit path
+    bb_n: int          # kept for legacy band_flip exit path
     bb_k: float
-    is_neo: bool = False  # Neo asset (USD price, RUB P&L at FX, no expiry)
+    is_neo: bool = False     # Neo asset (USD price, RUB P&L at FX, no expiry)
     currency: str = "rub"
-    risk_rate: float = 0.0  # margin fraction (dlong); leverage = 1/risk_rate
+    risk_rate: float = 0.0   # margin fraction (dlong); leverage = 1/risk_rate
 
     @property
     def days_to_expiry(self) -> int:
         if self.is_neo:
-            return 9999  # Neo perpetuals never expire → never roll over
+            return 9999      # Neo perpetuals never expire → never roll over
         return max(0, (self.expiration - datetime.now(timezone.utc)).days)
 
 
@@ -87,7 +81,10 @@ async def _resolve_front_month(broker, base: str, min_dte: int):
         t = getattr(f, "ticker", "") or ""
         if len(t) < 3:
             continue
-        is_match = t == base or (t.startswith(base) and len(t) == len(base) + 2)
+        is_match = (
+            t == base
+            or (t.startswith(base) and len(t) == len(base) + 2)
+        )
         if not is_match:
             continue
         exp = getattr(f, "expiration_date", None)
@@ -107,9 +104,8 @@ async def _resolve_front_month(broker, base: str, min_dte: int):
     return cands[0]
 
 
-async def _resolve_portfolio(
-    broker, entries: list[TrendEntry], min_dte: int
-) -> list[ResolvedContract]:
+async def _resolve_portfolio(broker, entries: list[TrendEntry],
+                              min_dte: int) -> list[ResolvedContract]:
     out = []
     for e in entries:
         try:
@@ -127,22 +123,16 @@ async def _resolve_portfolio(
         # min_price_increment_amount, so meta rpp silently defaults to 1
         # (LTU6 is really 7.19₽/pt, GDU6/S1U6 71.9₽/pt).
         real_rpp = await broker.get_rub_per_point(f.figi)
-        out.append(
-            ResolvedContract(
-                base=e.base,
-                ticker=f.ticker,
-                figi=f.figi,
-                instrument=f,
-                expiration=exp,
-                rpp=real_rpp,
-                lot_size=int(getattr(f, "lot", 1) or 1),
-                bb_n=e.n,
-                bb_k=e.k,
-                is_neo=is_neo,
-                currency=(getattr(f, "currency", "") or "rub"),
-                risk_rate=float(meta.get("dlong") or 0.0),
-            )
-        )
+        out.append(ResolvedContract(
+            base=e.base, ticker=f.ticker, figi=f.figi, instrument=f,
+            expiration=exp,
+            rpp=real_rpp,
+            lot_size=int(getattr(f, "lot", 1) or 1),
+            bb_n=e.n, bb_k=e.k,
+            is_neo=is_neo,
+            currency=(getattr(f, "currency", "") or "rub"),
+            risk_rate=float(meta.get("dlong") or 0.0),
+        ))
     return out
 
 
@@ -162,22 +152,15 @@ async def _resolve_neo(broker, entries: list[TrendEntry]) -> list[ResolvedContra
             exp = exp.ToDatetime()
         if exp is not None and exp.tzinfo is None:
             exp = exp.replace(tzinfo=timezone.utc)
-        out.append(
-            ResolvedContract(
-                base=e.base,
-                ticker=f.ticker,
-                figi=f.figi,
-                instrument=f,
-                expiration=exp or (datetime.now(timezone.utc) + timedelta(days=9999)),
-                rpp=float(meta.get("rub_per_point") or 1.0),
-                lot_size=int(getattr(f, "lot", 1) or 1),
-                bb_n=e.n,
-                bb_k=e.k,
-                is_neo=True,
-                currency=(getattr(f, "currency", "") or "usd"),
-                risk_rate=float(meta.get("dlong") or 0.20),
-            )
-        )
+        out.append(ResolvedContract(
+            base=e.base, ticker=f.ticker, figi=f.figi, instrument=f,
+            expiration=exp or (datetime.now(timezone.utc) + timedelta(days=9999)),
+            rpp=float(meta.get("rub_per_point") or 1.0),
+            lot_size=int(getattr(f, "lot", 1) or 1),
+            bb_n=e.n, bb_k=e.k, is_neo=True,
+            currency=(getattr(f, "currency", "") or "usd"),
+            risk_rate=float(meta.get("dlong") or 0.20),
+        ))
     return out
 
 
@@ -187,25 +170,20 @@ async def _fetch_ohlc(broker, figi: str, days: int) -> pd.DataFrame:
     now = datetime.now(timezone.utc)
     try:
         candles = await broker.get_candles(
-            figi,
-            now - timedelta(days=days),
-            now,
+            figi, now - timedelta(days=days), now,
             interval=CandleInterval.CANDLE_INTERVAL_HOUR,
         )
     except Exception as e:
         logger.warning(f"  {figi}: fetch failed ({e})")
         return pd.DataFrame()
-    rows = [
-        {
-            "time": c.time,
-            "open": float(quotation_to_decimal(c.open)),
-            "high": float(quotation_to_decimal(c.high)),
-            "low": float(quotation_to_decimal(c.low)),
-            "close": float(quotation_to_decimal(c.close)),
-            "volume": int(c.volume),
-        }
-        for c in candles
-    ]
+    rows = [{
+        "time": c.time,
+        "open": float(quotation_to_decimal(c.open)),
+        "high": float(quotation_to_decimal(c.high)),
+        "low": float(quotation_to_decimal(c.low)),
+        "close": float(quotation_to_decimal(c.close)),
+        "volume": int(c.volume),
+    } for c in candles]
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
@@ -217,18 +195,14 @@ class QualRestricted(Exception):
     """Broker rejected order due to qualified-investor restriction (90002)."""
 
 
-async def _place_market(
-    broker, figi: str, direction: str, lots: int, paper: bool
-) -> tuple[str, float]:
+async def _place_market(broker, figi: str, direction: str, lots: int,
+                        paper: bool) -> tuple[str, float]:
     last_p = float(await broker.get_last_price(figi))
     if paper:
         oid = f"paper-trend-{direction}-{figi[-6:]}-{int(time.time())}"
         return oid, last_p
-    side = (
-        OrderDirection.ORDER_DIRECTION_BUY
-        if direction == "buy"
-        else OrderDirection.ORDER_DIRECTION_SELL
-    )
+    side = (OrderDirection.ORDER_DIRECTION_BUY if direction == "buy"
+            else OrderDirection.ORDER_DIRECTION_SELL)
     # Use the REAL executed price for P&L, not a last-price snapshot.
     try:
         res = await broker.post_market_order_with_fill(figi, lots, side)
@@ -241,9 +215,8 @@ async def _place_market(
         raise
     fill = res["fill_price"] if res["fill_price"] > 0 else last_p
     if res.get("commission_rub"):
-        logger.info(
-            f"[trend] {figi} filled @ {fill:.4f} " f"(real comm {res['commission_rub']:.2f} ₽)"
-        )
+        logger.info(f"[trend] {figi} filled @ {fill:.4f} "
+                    f"(real comm {res['commission_rub']:.2f} ₽)")
     return res["order_id"], fill
 
 
@@ -255,14 +228,25 @@ async def _place_market(
 PATTERN_TIMEOUT_BARS = 48
 
 
-def _pattern_exit_reason(
-    direction: str,
-    last_price: float,
-    stop_price: float,
-    target_price: float,
-    entry_time_iso: str,
-    timeout_bars: int,
-) -> str | None:
+def _weekday_hours(start: datetime, end: datetime) -> float:
+    """Wall-clock hours excluding Sat/Sun — weekends are dead time on FORTS,
+    so they must not consume the pattern-timeout budget (2026-07-11; see the
+    identical helper + rationale in breakdown/bot.py)."""
+    if end <= start:
+        return 0.0
+    h, cur = 0.0, start
+    step = timedelta(hours=1)
+    while cur < end:
+        if cur.weekday() < 5:
+            h += 1.0
+        cur += step
+    return h
+
+
+def _pattern_exit_reason(direction: str, last_price: float,
+                         stop_price: float, target_price: float,
+                         entry_time_iso: str, timeout_bars: int,
+                         exclude_weekends: bool = True) -> str | None:
     """Return 'pattern_stop' / 'pattern_target' / 'pattern_timeout' / None.
 
     Bar-resolution timeout uses elapsed hours since entry.  Stop/target
@@ -284,7 +268,13 @@ def _pattern_exit_reason(
     entry_dt = datetime.fromisoformat(entry_time_iso.replace("Z", "+00:00"))
     if entry_dt.tzinfo is None:
         entry_dt = entry_dt.replace(tzinfo=timezone.utc)
-    hours_held = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
+    now = datetime.now(timezone.utc)
+    # FORTS: weekends are dead time → don't count them.  Neo perps trade
+    # weekends, so for them wall-clock is correct (exclude_weekends=False).
+    if exclude_weekends:
+        hours_held = _weekday_hours(entry_dt, now)
+    else:
+        hours_held = (now - entry_dt).total_seconds() / 3600
     if hours_held >= timeout_bars:
         return "pattern_timeout"
     return None
@@ -302,10 +292,10 @@ class TrendBot:
         self.by_base: dict = {}
         self.portfolio_value = 0.0
         self._last_universe_refresh: datetime | None = None
-        self._alerted_orphans: set = set()  # dedup orphan alerts across monitor ticks
-        self._gone_strikes: dict = {}  # figi → consecutive confirmed-absent reads
-        self._fx_usdrub: float = 80.0  # USD/RUB for Neo P&L (refreshed live)
-        self._qual_blocklist: set = set()  # bases the broker rejected for quals
+        self._alerted_orphans: set = set()   # dedup orphan alerts across monitor ticks
+        self._gone_strikes: dict = {}        # figi → consecutive confirmed-absent reads
+        self._fx_usdrub: float = 80.0        # USD/RUB for Neo P&L (refreshed live)
+        self._qual_blocklist: set = set()    # bases the broker rejected for quals
         # base → bar_time of the last signal we ENTERED on.  With 15-min ticks
         # a stop-out inside the 2-bar freshness window would otherwise re-enter
         # the same pattern within minutes (enter→stop→re-enter loop).
@@ -322,15 +312,8 @@ class TrendBot:
                 if px > 0:
                     self._fx_usdrub = px
                     return
-            si = next(
-                (
-                    f
-                    for f in futs
-                    if (getattr(f, "ticker", "") or "").startswith("Si")
-                    and len(getattr(f, "ticker", "")) == 4
-                ),
-                None,
-            )
+            si = next((f for f in futs if (getattr(f, "ticker", "") or "").startswith("Si")
+                       and len(getattr(f, "ticker", "")) == 4), None)
             if si:
                 px = float(await self.broker.get_last_price(si.figi))
                 if px > 0:
@@ -355,7 +338,8 @@ class TrendBot:
         nights = self._neo_nights(entry_dt, exit_dt)
         return float(self.settings.TREND_NEO_DAILY_FEE_ANNUAL) / 365.0 * nights * 100.0
 
-    async def _neo_margin_ok(self, c: "ResolvedContract", entry_price: float, lots: int) -> bool:
+    async def _neo_margin_ok(self, c: "ResolvedContract", entry_price: float,
+                             lots: int) -> bool:
         """Block a Neo entry if free margin < buffer × the position's ГО.
 
         ГО (initial margin) = notional_RUB × risk_rate.  Conservative: if the
@@ -374,13 +358,11 @@ class TrendBot:
             logger.warning(
                 f"[trend] {c.base}: Neo entry BLOCKED — free margin {avail:,.0f}₽ "
                 f"< {self.settings.TREND_NEO_MARGIN_BUFFER:.1f}× ГО ({go:,.0f}₽ "
-                f"= ${entry_price:.0f}×{self._fx_usdrub:.0f}×{rr*100:.0f}%)"
-            )
+                f"= ${entry_price:.0f}×{self._fx_usdrub:.0f}×{rr*100:.0f}%)")
             return False
         logger.info(
             f"[trend] {c.base}: Neo margin OK — ГО {go:,.0f}₽ "
-            f"(lev {1/rr:.1f}×), free {avail:,.0f}₽, suff {summ.get('sufficiency_pct',0):.0f}%"
-        )
+            f"(lev {1/rr:.1f}×), free {avail:,.0f}₽, suff {summ.get('sufficiency_pct',0):.0f}%")
         return True
 
     def _size_lots(self, c: "ResolvedContract", entry_price: float) -> int:
@@ -410,23 +392,14 @@ class TrendBot:
         max_lots = int(self.settings.TREND_LOTS_MAX_PER_TRADE)
         raw = target / go_per_lot
         lots = max(1, min(max_lots, int(round(raw))))
-        logger.info(
-            f"[trend] {c.base}: size = {lots} lot(s) "
-            f"(ГО {go_per_lot:.0f}/lot × {lots} = {go_per_lot*lots:.0f}₽, "
-            f"target {target:.0f}₽, lev {1/rr:.1f}×)"
-        )
+        logger.info(f"[trend] {c.base}: size = {lots} lot(s) "
+                    f"(ГО {go_per_lot:.0f}/lot × {lots} = {go_per_lot*lots:.0f}₽, "
+                    f"target {target:.0f}₽, lev {1/rr:.1f}×)")
         return lots
 
-    def _pnl_rub(
-        self,
-        c: "ResolvedContract",
-        direction: str,
-        entry: float,
-        exit_p: float,
-        lots: int,
-        entry_dt: datetime = None,
-        exit_dt: datetime = None,
-    ):
+    def _pnl_rub(self, c: "ResolvedContract", direction: str,
+                 entry: float, exit_p: float, lots: int,
+                 entry_dt: datetime = None, exit_dt: datetime = None):
         """Unified P&L → (pnl_rub, pnl_pct, commission_rub).
 
         Neo: USD price → RUB at the live FX rate; cost = per-night holding fee
@@ -437,19 +410,15 @@ class TrendBot:
             sgn = 1.0 if direction == "buy" else -1.0
             pct = (exit_p - entry) / max(entry, 1e-9) * 100 * sgn
             gross_rub = (exit_p - entry) * sgn * lots * int(c.lot_size or 1) * self._fx_usdrub
-            fee_pct = self._neo_fee_pct(entry_dt, exit_dt) if entry_dt and exit_dt else 0.0
+            fee_pct = (self._neo_fee_pct(entry_dt, exit_dt)
+                       if entry_dt and exit_dt else 0.0)
             fee_rub = abs(entry * lots * int(c.lot_size or 1) * self._fx_usdrub) * fee_pct / 100
             return gross_rub - fee_rub, pct - fee_pct, fee_rub
         pnl, pnl_pct, _, comm_rub = comm.round_trip_pnl(
-            direction=direction,
-            entry_price=entry,
-            exit_price=exit_p,
-            lots=lots,
-            lot_size=int(c.lot_size or 1),
+            direction=direction, entry_price=entry, exit_price=exit_p,
+            lots=lots, lot_size=int(c.lot_size or 1),
             rub_per_point=float(c.rpp or 1.0),
-            instrument_kind="future",
-            base_ticker=c.base,
-        )
+            instrument_kind="future", base_ticker=c.base)
         return pnl, pnl_pct, comm_rub
 
     @property
@@ -462,24 +431,19 @@ class TrendBot:
         self.db = TrendDB(self.settings.TREND_DB_PATH)
         await self.db.initialize()
 
-        entries = (
-            core_portfolio()
-            if self.settings.TREND_UNIVERSE_MODE == "core"
-            else tradeable_portfolio()
-        )
+        entries = (core_portfolio()
+                   if self.settings.TREND_UNIVERSE_MODE == "core"
+                   else tradeable_portfolio())
         logger.info(
             f"[trend] Universe mode: {self.settings.TREND_UNIVERSE_MODE} "
             f"-> {len(entries)} contracts"
         )
         self.contracts = await _resolve_portfolio(
-            broker,
-            entries,
-            self.settings.TREND_MIN_DAYS_TO_EXPIRY,
+            broker, entries, self.settings.TREND_MIN_DAYS_TO_EXPIRY,
         )
         # Append Neo assets (US stocks / crypto) if enabled
         if bool(self.settings.TREND_TRADE_NEO):
             from futbot.trend.portfolio import neo_portfolio
-
             neo = await _resolve_neo(broker, neo_portfolio())
             self.contracts += neo
             await self._refresh_fx()
@@ -491,7 +455,8 @@ class TrendBot:
         logger.info(
             f"[trend] Resolved {len(self.contracts)} contracts:\n  "
             + "\n  ".join(
-                f"{c.base:<10} {c.ticker:<10} dte={c.days_to_expiry:>3}" for c in self.contracts
+                f"{c.base:<10} {c.ticker:<10} dte={c.days_to_expiry:>3}"
+                for c in self.contracts
             )
         )
 
@@ -505,16 +470,14 @@ class TrendBot:
 
         self._last_universe_refresh = datetime.now(timezone.utc)
         if self.notifier:
-            self.notifier.push(
-                Msg(
-                    MsgType.BOOT,
-                    f"Trend subsystem - {self.mode}",
-                    f"Universe: {len(self.contracts)} contracts "
-                    f"(mode={self.settings.TREND_UNIVERSE_MODE})\n"
-                    f"Strategy: PATTERN-BASED (triple_top + triple_bottom)\n"
-                    f"Freeze: {self.settings.TREND_FREEZE_NEW_ENTRIES}",
-                )
-            )
+            self.notifier.push(Msg(
+                MsgType.BOOT,
+                f"Trend subsystem - {self.mode}",
+                f"Universe: {len(self.contracts)} contracts "
+                f"(mode={self.settings.TREND_UNIVERSE_MODE})\n"
+                f"Strategy: PATTERN-BASED (triple_top + triple_bottom)\n"
+                f"Freeze: {self.settings.TREND_FREEZE_NEW_ENTRIES}",
+            ))
         self._initialised = True
         return True
 
@@ -525,26 +488,18 @@ class TrendBot:
         5 minutes (the 2026-06-06 noise was exactly this).
         Read directly from the other DBs — cheap and avoids circular imports."""
         import aiosqlite
-
         owned = set()
         from futbot.carry.config import CarrySettings
         from futbot.pairs.config import PairsSettings
         from futbot.breakdown.config import BreakdownSettings
-
         for db_path, sql in [
-            (
-                CarrySettings().CARRY_DB_PATH,
-                "SELECT figi_y, figi_x FROM pair_trades WHERE exit_time IS NULL",
-            ),
-            (
-                PairsSettings().PAIRS_DB_PATH,
-                "SELECT figi_y, figi_x FROM pair_trades WHERE exit_time IS NULL",
-            ),
+            (CarrySettings().CARRY_DB_PATH,
+             "SELECT figi_y, figi_x FROM pair_trades WHERE exit_time IS NULL"),
+            (PairsSettings().PAIRS_DB_PATH,
+             "SELECT figi_y, figi_x FROM pair_trades WHERE exit_time IS NULL"),
             # breakdown shorts single-stock futures — trend must not claim them
-            (
-                BreakdownSettings().BD_DB_PATH,
-                "SELECT fut_figi, fut_figi FROM bd_trades WHERE exit_time IS NULL",
-            ),
+            (BreakdownSettings().BD_DB_PATH,
+             "SELECT fut_figi, fut_figi FROM bd_trades WHERE exit_time IS NULL"),
         ]:
             try:
                 async with aiosqlite.connect(str(db_path)) as db:
@@ -562,9 +517,8 @@ class TrendBot:
         try:
             pos = await self.broker.get_positions()
         except Exception as e:
-            logger.warning(
-                f"[trend] get_positions failed: {e} — skipping " f"gone/orphan detection this cycle"
-            )
+            logger.warning(f"[trend] get_positions failed: {e} — skipping "
+                           f"gone/orphan detection this cycle")
             return {}, False
         out = {}
         for f in getattr(pos, "futures", []) or []:
@@ -593,7 +547,7 @@ class TrendBot:
         live_mode = not bool(self.settings.TREND_PAPER_MODE)
         matched_figis = set()
         reconciled = force_closed = purged = 0
-        GONE_STRIKES_NEEDED = 2  # debounce: 2 consecutive confirmed-absent reads
+        GONE_STRIKES_NEEDED = 2   # debounce: 2 consecutive confirmed-absent reads
 
         for r in open_rows:
             base = r["base"]
@@ -604,18 +558,14 @@ class TrendBot:
             # orders.  Safe regardless of API state (no broker data needed).
             if live_mode and is_paper_trade:
                 await self.db.close_trade(
-                    r["id"],
-                    exit_price=float(r["entry_price"]),
+                    r["id"], exit_price=float(r["entry_price"]),
                     exit_time=datetime.utcnow().isoformat(),
                     exit_reason="paper_purge_live_switch",
-                    pnl=0.0,
-                    pnl_pct=0.0,
-                    commission_rub=0.0,
+                    pnl=0.0, pnl_pct=0.0, commission_rub=0.0,
                 )
                 logger.warning(
                     f"[trend] RECONCILE {base}: paper position purged on "
-                    f"live switch (was not real)"
-                )
+                    f"live switch (was not real)")
                 purged += 1
                 continue
 
@@ -633,8 +583,7 @@ class TrendBot:
                         logger.warning(
                             f"[trend] RECONCILE {base}: absent at broker "
                             f"(strike {self._gone_strikes[figi]}/{GONE_STRIKES_NEEDED}) "
-                            f"— waiting for confirmation before closing"
-                        )
+                            f"— waiting for confirmation before closing")
                         matched_figis.add(figi)
                         continue
                     try:
@@ -642,29 +591,22 @@ class TrendBot:
                     except Exception:
                         fill = float(r["entry_price"])
                     pnl, pnl_pct, _, comm_rub = comm.round_trip_pnl(
-                        direction=r["direction"],
-                        entry_price=r["entry_price"],
-                        exit_price=fill,
-                        lots=r["lots"],
+                        direction=r["direction"], entry_price=r["entry_price"],
+                        exit_price=fill, lots=r["lots"],
                         lot_size=int(r["lot_size"] or 1),
                         rub_per_point=float(r["rub_per_point"] or 1.0),
-                        instrument_kind="future",
-                        base_ticker=base,
+                        instrument_kind="future", base_ticker=base,
                     )
                     await self.db.close_trade(
-                        r["id"],
-                        exit_price=fill,
+                        r["id"], exit_price=fill,
                         exit_time=datetime.utcnow().isoformat(),
                         exit_reason="reconciled_gone_at_broker",
-                        pnl=pnl,
-                        pnl_pct=pnl_pct,
-                        commission_rub=comm_rub,
+                        pnl=pnl, pnl_pct=pnl_pct, commission_rub=comm_rub,
                     )
                     logger.warning(
                         f"[trend] RECONCILE {base}: live trade confirmed gone "
                         f"at broker ({GONE_STRIKES_NEEDED} reads) — closed @ "
-                        f"{fill:.4f} (closed externally?)"
-                    )
+                        f"{fill:.4f} (closed externally?)")
                     self._gone_strikes.pop(figi, None)
                     force_closed += 1
                     continue
@@ -679,23 +621,17 @@ class TrendBot:
                 except Exception:
                     fill = float(r["entry_price"])
                 pnl, pnl_pct, _, comm_rub = comm.round_trip_pnl(
-                    direction=r["direction"],
-                    entry_price=r["entry_price"],
-                    exit_price=fill,
-                    lots=r["lots"],
+                    direction=r["direction"], entry_price=r["entry_price"],
+                    exit_price=fill, lots=r["lots"],
                     lot_size=int(r["lot_size"] or 1),
                     rub_per_point=float(r["rub_per_point"] or 1.0),
-                    instrument_kind="future",
-                    base_ticker=base,
+                    instrument_kind="future", base_ticker=base,
                 )
                 await self.db.close_trade(
-                    r["id"],
-                    exit_price=fill,
+                    r["id"], exit_price=fill,
                     exit_time=datetime.utcnow().isoformat(),
                     exit_reason="boot_reconcile_unknown",
-                    pnl=pnl,
-                    pnl_pct=pnl_pct,
-                    commission_rub=comm_rub,
+                    pnl=pnl, pnl_pct=pnl_pct, commission_rub=comm_rub,
                 )
                 logger.warning(
                     f"[trend] RECONCILE {base} (out of universe) - "
@@ -717,32 +653,24 @@ class TrendBot:
         # (carry holds both Si/GK legs; trend would otherwise spam "orphan"
         # every monitor tick — the 2026-06-06 noise was exactly this).
         other_owned = await self._figis_owned_by_other_bots()
-        orphans = (
-            {
-                f: q
-                for f, q in broker_pos.items()
-                if q != 0 and f not in matched_figis and f not in other_owned
-            }
-            if pos_ok
-            else {}
-        )
+        orphans = ({f: q for f, q in broker_pos.items()
+                    if q != 0 and f not in matched_figis and f not in other_owned}
+                   if pos_ok else {})
         if orphans:
             msg = ", ".join(f"{f}:{q:+d}" for f, q in orphans.items())
             logger.error(f"[trend] ⚠ ORPHAN broker positions (no DB trade): {msg}")
             # Alert only NEW orphans (monitor runs every 5 min — avoid spam)
             new_orphans = {f for f in orphans if f not in self._alerted_orphans}
             if new_orphans and self.notifier:
-                self.notifier.push(
-                    Msg(
-                        MsgType.ERROR,
-                        "⚠ ORPHAN POSITION (manual check)",
-                        f"Broker holds positions with no bot record:\n{msg}\n"
-                        f"Not auto-traded — close manually if unintended.",
-                    )
-                )
+                self.notifier.push(Msg(
+                    MsgType.ERROR,
+                    "⚠ ORPHAN POSITION (manual check)",
+                    f"Broker holds positions with no bot record:\n{msg}\n"
+                    f"Not auto-traded — close manually if unintended.",
+                ))
             self._alerted_orphans = set(orphans.keys())
         elif pos_ok:
-            self._alerted_orphans = set()  # only clear on a trusted read
+            self._alerted_orphans = set()   # only clear on a trusted read
 
         if open_rows or orphans:
             logger.info(
@@ -758,24 +686,17 @@ class TrendBot:
         logger.info(f"[trend] -- Tick {t_start.isoformat()[:19]} --")
 
         # Refresh universe every 6h
-        if (
-            self._last_universe_refresh is None
-            or (t_start - self._last_universe_refresh).total_seconds() > 6 * 3600
-        ):
+        if (self._last_universe_refresh is None
+                or (t_start - self._last_universe_refresh).total_seconds() > 6 * 3600):
             logger.info("[trend] Refreshing portfolio resolution...")
-            entries = (
-                core_portfolio()
-                if self.settings.TREND_UNIVERSE_MODE == "core"
-                else tradeable_portfolio()
-            )
+            entries = (core_portfolio()
+                       if self.settings.TREND_UNIVERSE_MODE == "core"
+                       else tradeable_portfolio())
             self.contracts = await _resolve_portfolio(
-                self.broker,
-                entries,
-                self.settings.TREND_MIN_DAYS_TO_EXPIRY,
+                self.broker, entries, self.settings.TREND_MIN_DAYS_TO_EXPIRY,
             )
             if bool(self.settings.TREND_TRADE_NEO):
                 from futbot.trend.portfolio import neo_portfolio
-
                 self.contracts += await _resolve_neo(self.broker, neo_portfolio())
                 await self._refresh_fx()
             self.by_base = {c.base: c for c in self.contracts}
@@ -792,7 +713,13 @@ class TrendBot:
             )
 
         for c in self.contracts:
-            await self._process_contract(c, kill_active)
+            try:
+                await self._process_contract(c, kill_active)
+            except Exception as e:
+                # Isolate per-contract broker failures (e.g. 30079 market closed)
+                # so one contract can't crash the whole tick.
+                logger.warning(f"[trend]   {c.base}: process deferred "
+                               f"({type(e).__name__}: {e}) — retry next cycle")
 
     async def monitor(self):
         """Fast position check (runs every ~5 min, between hourly signal ticks).
@@ -819,12 +746,11 @@ class TrendBot:
             except Exception:
                 continue
             reason = _pattern_exit_reason(
-                direction=r["direction"],
-                last_price=last,
+                direction=r["direction"], last_price=last,
                 stop_price=float(r["stop_price"]),
                 target_price=float(r["target_price"]),
-                entry_time_iso=r["entry_time"],
-                timeout_bars=PATTERN_TIMEOUT_BARS,
+                entry_time_iso=r["entry_time"], timeout_bars=PATTERN_TIMEOUT_BARS,
+                exclude_weekends=not c.is_neo,   # Neo perps trade weekends
             )
             if reason:
                 logger.info(f"[trend] MONITOR exit {r['base']} ({reason}) @ {last:.4f}")
@@ -852,6 +778,7 @@ class TrendBot:
                     target_price=float(open_t["target_price"]),
                     entry_time_iso=open_t["entry_time"],
                     timeout_bars=PATTERN_TIMEOUT_BARS,
+                    exclude_weekends=not c.is_neo,   # Neo perps trade weekends
                 )
                 if exit_reason:
                     await self._close_position(c, open_t, exit_reason)
@@ -879,14 +806,13 @@ class TrendBot:
             return
         # Separate cap for Neo positions (higher leverage → tighter concurrency)
         if c.is_neo:
-            neo_open = sum(1 for r in open_rows if (r["ticker"] or "").endswith("perpA"))
+            neo_open = sum(1 for r in open_rows
+                           if (r["ticker"] or "").endswith("perpA"))
             if neo_open >= int(self.settings.TREND_NEO_MAX_OPEN):
                 return
 
         df = await _fetch_ohlc(
-            self.broker,
-            c.figi,
-            self.settings.TREND_CANDLE_HISTORY_DAYS,
+            self.broker, c.figi, self.settings.TREND_CANDLE_HISTORY_DAYS,
         )
         if df.empty or len(df) < 100:
             logger.info(f"[trend]   {c.base}: insufficient bars ({len(df)})")
@@ -897,15 +823,15 @@ class TrendBot:
     async def _scan_and_open(self, c: ResolvedContract, df: pd.DataFrame):
         """Run pattern detectors; open if a signal fires on the last few bars."""
         p = TUNED_PARAMS
-        swings = find_swings(df, window=p.swing_window, min_prominence_pct=p.min_prominence_pct)
+        swings = find_swings(df,
+                             window=p.swing_window,
+                             min_prominence_pct=p.min_prominence_pct)
         if len(swings) < 5:
             return
 
         det_kw = dict(
-            peak_tol=p.peak_tol,
-            min_height=p.min_height,
-            min_width=p.min_width,
-            max_width=p.max_width,
+            peak_tol=p.peak_tol, min_height=p.min_height,
+            min_width=p.min_width, max_width=p.max_width,
             max_confirm_bars=p.max_confirm_bars,
         )
         signals = []
@@ -938,6 +864,41 @@ class TrendBot:
             return
 
         direction = "buy" if sig.direction == +1 else "sell"
+
+        # Min R:R gate: refuse geometrically losing trades (risk > reward).
+        # The bot used to enter setups it itself printed as "R:R = 1:0.44".
+        min_rr = float(getattr(self.settings, "TREND_MIN_RR", 0.0))
+        if min_rr > 0:
+            risk_d = abs(sig.entry_price - sig.stop_price)
+            reward_d = abs(sig.target_price - sig.entry_price)
+            rr = reward_d / risk_d if risk_d > 0 else 0.0
+            if rr < min_rr:
+                logger.info(f"[trend] {c.base}: R:R gate — 1:{rr:.2f} < "
+                            f"1:{min_rr:.2f} required, skip {sig.pattern}")
+                return
+
+        # Re-entry cooldown: after a LOSING exit on this base+direction, wait
+        # TREND_REENTRY_COOLDOWN_H hours before re-entering the same way.
+        # (2026-06-30: S1 stop-out → same-direction re-entry next day = averaging
+        # into a losing idea.  Patterns that re-fire immediately after a stop are
+        # usually the same failed structure, not a fresh setup.)
+        cd_h = float(getattr(self.settings, "TREND_REENTRY_COOLDOWN_H", 24.0))
+        if cd_h > 0:
+            last_loss = await self.db.last_losing_exit(c.base, direction)
+            if last_loss:
+                try:
+                    lt = datetime.fromisoformat(last_loss.replace("Z", "+00:00"))
+                    if lt.tzinfo is None:
+                        lt = lt.replace(tzinfo=timezone.utc)
+                    age_h = (datetime.now(timezone.utc) - lt).total_seconds() / 3600
+                    if age_h < cd_h:
+                        logger.info(
+                            f"[trend] {c.base}: re-entry cooldown "
+                            f"({age_h:.1f}h < {cd_h:.0f}h after losing {direction}) — skip")
+                        return
+                except Exception:
+                    pass
+
         lots = self._size_lots(c, sig.entry_price)
 
         # Free-margin guard for ALL live entries (was Neo-only; an expensive
@@ -948,28 +909,19 @@ class TrendBot:
                     return
             else:
                 summ, ok = await self.broker.get_margin_summary()
-                go = (
-                    sig.entry_price
-                    * c.rpp
-                    * int(c.lot_size or 1)
-                    * lots
-                    * (c.risk_rate if c.risk_rate > 0 else 0.20)
-                )
+                go = (sig.entry_price * c.rpp * int(c.lot_size or 1) * lots
+                      * (c.risk_rate if c.risk_rate > 0 else 0.20))
                 buf = float(self.settings.TREND_NEO_MARGIN_BUFFER)
                 if not ok or summ.get("available", 0.0) < go * buf:
                     logger.warning(
                         f"[trend] {c.base}: entry BLOCKED — free margin "
                         f"{summ.get('available', 0.0):,.0f}₽ < {buf:.1f}× ГО "
-                        f"({go:,.0f}₽ for {lots} lots)"
-                    )
+                        f"({go:,.0f}₽ for {lots} lots)")
                     return
 
         try:
             oid, fill = await _place_market(
-                self.broker,
-                c.figi,
-                direction,
-                lots,
+                self.broker, c.figi, direction, lots,
                 paper=bool(self.settings.TREND_PAPER_MODE),
             )
         except QualRestricted as e:
@@ -977,24 +929,18 @@ class TrendBot:
             # the runner.  Add base to a one-shot blocklist so we stop scanning
             # it this session (clears on next process start).
             self._qual_blocklist.add(c.base)
-            logger.warning(
-                f"[trend] {c.base}: SKIPPED — {e}.  " f"Add quals status in T-Invest app to enable."
-            )
+            logger.warning(f"[trend] {c.base}: SKIPPED — {e}.  "
+                           f"Add quals status in T-Invest app to enable.")
             return
         self._entered_sig_bar[c.base] = sig.bar_time
         trade_id = await self.db.insert_trade(
-            base=c.base,
-            ticker=c.ticker,
-            figi=c.figi,
-            direction=direction,
-            lots=lots,
-            bb_n=0,
-            bb_k=0,  # legacy fields unused by pattern entries
+            base=c.base, ticker=c.ticker, figi=c.figi,
+            direction=direction, lots=lots,
+            bb_n=0, bb_k=0,  # legacy fields unused by pattern entries
             entry_price=fill,
             entry_time=datetime.utcnow().isoformat(),
             entry_order_id=oid,
-            rub_per_point=c.rpp,
-            lot_size=c.lot_size,
+            rub_per_point=c.rpp, lot_size=c.lot_size,
             paper=int(bool(self.settings.TREND_PAPER_MODE)),
             pattern_name=sig.pattern,
             stop_price=float(sig.stop_price),
@@ -1007,24 +953,23 @@ class TrendBot:
             f"target={sig.target_price:.4f}  trade_id={trade_id}"
         )
         # Real exchange stop-loss (hard protection if bot/monitor is down)
-        await self._place_protective_stop(c, trade_id, direction, lots, float(sig.stop_price))
+        await self._place_protective_stop(
+            c, trade_id, direction, lots, float(sig.stop_price))
         if self.notifier:
             risk_pct = abs(sig.stop_price - fill) / max(fill, 1e-9) * 100
             reward_pct = abs(sig.target_price - fill) / max(fill, 1e-9) * 100
-            self.notifier.push(
-                Msg(
-                    MsgType.TRADE_OPENED,
-                    f"TREND {c.base} {direction.upper()} ({sig.pattern})",
-                    f"entry: {fill:.4f}  lots: {lots}  ({c.ticker})\n"
-                    f"stop: {sig.stop_price:.4f}  (-{risk_pct:.2f}%)\n"
-                    f"target: {sig.target_price:.4f}  (+{reward_pct:.2f}%)\n"
-                    f"R:R = 1:{reward_pct/max(risk_pct,1e-9):.2f}",
-                )
-            )
+            self.notifier.push(Msg(
+                MsgType.TRADE_OPENED,
+                f"TREND {c.base} {direction.upper()} ({sig.pattern})",
+                f"entry: {fill:.4f}  lots: {lots}  ({c.ticker})\n"
+                f"stop: {sig.stop_price:.4f}  (-{risk_pct:.2f}%)\n"
+                f"target: {sig.target_price:.4f}  (+{reward_pct:.2f}%)\n"
+                f"R:R = 1:{reward_pct/max(risk_pct,1e-9):.2f}",
+            ))
 
-    async def _place_protective_stop(
-        self, c: ResolvedContract, trade_id: int, direction: str, lots: int, stop_price: float
-    ):
+    async def _place_protective_stop(self, c: ResolvedContract, trade_id: int,
+                                     direction: str, lots: int,
+                                     stop_price: float):
         """Place a real exchange stop-loss so the position is protected even
         if the bot/monitor is down.  Only ONE resting order (the stop) — the
         take-profit is handled by the monitor to avoid the OCO orphan trap
@@ -1033,11 +978,9 @@ class TrendBot:
         if bool(self.settings.TREND_PAPER_MODE):
             return
         try:
-            exit_dir = (
-                StopOrderDirection.STOP_ORDER_DIRECTION_SELL
-                if direction == "buy"
-                else StopOrderDirection.STOP_ORDER_DIRECTION_BUY
-            )
+            exit_dir = (StopOrderDirection.STOP_ORDER_DIRECTION_SELL
+                        if direction == "buy"
+                        else StopOrderDirection.STOP_ORDER_DIRECTION_BUY)
             sp = await self.broker._round_to_increment(c.figi, Decimal(str(stop_price)))
             sid = await self.broker.post_stop_loss(c.figi, lots, sp, exit_dir)
             await self.db.close_trade(trade_id, protective_stop_id=str(sid))
@@ -1045,8 +988,7 @@ class TrendBot:
         except Exception as e:
             logger.warning(
                 f"[trend]   {c.base}: protective stop NOT placed ({e}) — "
-                f"monitor will enforce the stop instead"
-            )
+                f"monitor will enforce the stop instead")
 
     async def _cancel_protective_stop(self, open_t):
         """Cancel the resting exchange stop before a bot-initiated close, so
@@ -1064,7 +1006,8 @@ class TrendBot:
         except Exception as e:
             logger.warning(f"[trend]   cancel protective stop {sid} failed: {e}")
 
-    async def _close_position(self, c: ResolvedContract, open_t, exit_reason: str):
+    async def _close_position(self, c: ResolvedContract, open_t,
+                              exit_reason: str):
         # RACE GUARD — based on the BROKER POSITION, not the stop-order list.
         # The earlier "stop missing from active list ⇒ assume filled at
         # stop_price" was WRONG: on 2026-06-16 it false-closed a still-open,
@@ -1080,36 +1023,87 @@ class TrendBot:
             if ok:
                 qty = float(pos.get(c.figi, {}).get("qty", 0) or 0)
                 bot_long = open_t["direction"] == "buy"
-                already_flat = qty == 0 or (bot_long and qty <= 0) or ((not bot_long) and qty >= 0)
+                already_flat = (qty == 0
+                                or (bot_long and qty <= 0)
+                                or ((not bot_long) and qty >= 0))
                 if already_flat:
                     await self._cancel_protective_stop(open_t)
-                    fill_price = float(await self.broker.get_last_price(c.figi))
+                    # Real exit = the actual covering trade, NOT the current
+                    # price.  get_last_price here fabricates P&L: under high
+                    # volatility (2026-06-24) a stop-out gets mis-recorded as a
+                    # profit once price snaps back.  Reconstruct from operations.
+                    fill_price = await self._real_exit_price(
+                        c.figi, open_t["entry_time"], open_t["direction"])
+                    tag = "(closed_externally)"
+                    if fill_price is None:
+                        fill_price = float(await self.broker.get_last_price(c.figi))
+                        tag = "(closed_externally~approx)"
+                        logger.warning(
+                            f"[trend]   {c.base}: no covering op found — P&L "
+                            f"approximated from last price {fill_price:.4f}")
                     await self._record_close(
-                        c, open_t, fill_price, f"{exit_reason}(closed_externally)"
-                    )
-                    logger.info(
-                        f"[trend]   {c.base}: already flat at broker "
-                        f"(qty={qty}) — recorded close, no double-trade"
-                    )
+                        c, open_t, fill_price, f"{exit_reason}{tag}")
+                    logger.info(f"[trend]   {c.base}: already flat at broker "
+                                f"(qty={qty}) — recorded close, no double-trade")
                     return
 
         # Cancel the resting exchange stop FIRST (avoid post-close orphan).
         await self._cancel_protective_stop(open_t)
         exit_dir = "sell" if open_t["direction"] == "buy" else "buy"
-        oid, fill_price = await _place_market(
-            self.broker,
-            c.figi,
-            exit_dir,
-            open_t["lots"],
-            paper=bool(self.settings.TREND_PAPER_MODE),
-        )
+        try:
+            oid, fill_price = await _place_market(
+                self.broker, c.figi, exit_dir, open_t["lots"],
+                paper=bool(self.settings.TREND_PAPER_MODE),
+            )
+        except Exception as e:
+            # Market closed (30079 'instrument not available') or transient →
+            # DON'T crash the tick.  Leave the position open; retry next cycle
+            # (it'll fill once the session opens).
+            logger.warning(f"[trend]   {c.base}: close order deferred "
+                           f"({type(e).__name__}: {e}) — retry next cycle")
+            return
         if not fill_price or fill_price <= 0:
             fill_price = float(await self.broker.get_last_price(c.figi))
         await self._record_close(c, open_t, fill_price, exit_reason, oid=oid)
 
-    async def _record_close(
-        self, c: ResolvedContract, open_t, fill_price: float, exit_reason: str, oid: str = ""
-    ):
+    async def _real_exit_price(self, figi: str, since_iso: str,
+                               direction: str) -> float | None:
+        """Reconstruct the ACTUAL covering-trade price from operations history
+        when a position is found already flat at the broker.  Long close = SELL,
+        short close = BUY.  Returns None if no matching op is found (caller falls
+        back to last price + flags the P&L as unverified)."""
+        from t_tech.invest import OperationType
+        if direction == "buy":   # long → closed by SELL
+            close_types = [OperationType.OPERATION_TYPE_SELL,
+                           OperationType.OPERATION_TYPE_SELL_MARGIN]
+        else:                    # short → closed by BUY
+            close_types = [OperationType.OPERATION_TYPE_BUY,
+                           OperationType.OPERATION_TYPE_BUY_MARGIN]
+        try:
+            since = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+            # cursor endpoint with SERVER-SIDE type filter
+            ops = await self.broker.get_operations(from_dt=since,
+                                                   operation_types=close_types)
+        except Exception as e:
+            logger.warning(f"[trend] ops lookup failed: {e}")
+            return None
+        matches = [op for op in ops if getattr(op, "figi", None) == figi]
+        if not matches:
+            return None
+        matches.sort(key=lambda o: getattr(
+            o, "date", datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
+        pq = getattr(matches[0], "price", None)
+        if pq is None:
+            return None
+        try:
+            return float(quotation_to_decimal(pq))
+        except Exception:
+            return None
+
+    async def _record_close(self, c: ResolvedContract, open_t, fill_price: float,
+                            exit_reason: str, oid: str = ""):
         """Compute P&L, write the DB close, log + notify.  Shared by the normal
         close path and the stop-already-filled race-guard path."""
         entry_dt = datetime.fromisoformat(open_t["entry_time"].replace("Z", "+00:00"))
@@ -1119,22 +1113,13 @@ class TrendBot:
         if c.is_neo:
             await self._refresh_fx()
         pnl, pnl_pct, comm_rub = self._pnl_rub(
-            c,
-            open_t["direction"],
-            open_t["entry_price"],
-            fill_price,
-            open_t["lots"],
-            entry_dt=entry_dt,
-            exit_dt=exit_dt,
-        )
+            c, open_t["direction"], open_t["entry_price"], fill_price,
+            open_t["lots"], entry_dt=entry_dt, exit_dt=exit_dt)
         await self.db.close_trade(
-            open_t["id"],
-            exit_price=fill_price,
+            open_t["id"], exit_price=fill_price,
             exit_time=datetime.utcnow().isoformat(),
             exit_reason=exit_reason,
-            pnl=pnl,
-            pnl_pct=pnl_pct,
-            commission_rub=comm_rub,
+            pnl=pnl, pnl_pct=pnl_pct, commission_rub=comm_rub,
             exit_order_id=oid,
         )
         cur = "USD" if c.is_neo else "RUB"
@@ -1145,15 +1130,13 @@ class TrendBot:
         )
         if self.notifier:
             tag = (open_t["pattern_name"] or "bb").upper()
-            self.notifier.push(
-                Msg(
-                    MsgType.TRADE_CLOSED,
-                    f"TREND {c.base} CLOSE ({tag})",
-                    f"{exit_reason}\n"
-                    f"entry: {open_t['entry_price']:.4f} -> exit: {fill_price:.4f}\n"
-                    f"P&L: <b>{pnl:+.2f} RUB</b> ({pnl_pct:+.3f}%)",
-                )
-            )
+            self.notifier.push(Msg(
+                MsgType.TRADE_CLOSED,
+                f"TREND {c.base} CLOSE ({tag})",
+                f"{exit_reason}\n"
+                f"entry: {open_t['entry_price']:.4f} -> exit: {fill_price:.4f}\n"
+                f"P&L: <b>{pnl:+.2f} RUB</b> ({pnl_pct:+.3f}%)",
+            ))
 
     async def _manage_legacy_bb(self, c: ResolvedContract, open_t):
         """Manage a Bollinger-era position: exit on band_flip only.
@@ -1163,25 +1146,22 @@ class TrendBot:
         scan path here), but we do honour their original exit rule.
         """
         df = await _fetch_ohlc(
-            self.broker,
-            c.figi,
-            self.settings.TREND_CANDLE_HISTORY_DAYS,
+            self.broker, c.figi, self.settings.TREND_CANDLE_HISTORY_DAYS,
         )
         if df.empty or len(df) < (c.bb_n or 20) + 5:
             return
         cur_pos = 1 if open_t["direction"] == "buy" else -1
-        dec = strat.evaluate(
-            close=df["close"],
-            n=int(c.bb_n or open_t["bb_n"] or 20),
-            k=float(c.bb_k or open_t["bb_k"] or 2.0),
-            current_position=cur_pos,
-        )
+        dec = strat.evaluate(close=df["close"],
+                             n=int(c.bb_n or open_t["bb_n"] or 20),
+                             k=float(c.bb_k or open_t["bb_k"] or 2.0),
+                             current_position=cur_pos)
         if dec.action == "close":
             await self._close_position(c, open_t, "band_flip")
         else:
             cur_close = float(df["close"].iloc[-1])
             logger.info(
-                f"[trend]   {c.base:<10} HOLD (legacy) close={cur_close:.4f} " f"pos={cur_pos:+d}"
+                f"[trend]   {c.base:<10} HOLD (legacy) close={cur_close:.4f} "
+                f"pos={cur_pos:+d}"
             )
 
     async def _do_rollover(self, c: ResolvedContract, open_t):
@@ -1213,7 +1193,8 @@ class TrendBot:
             await self._refresh_fx()
         total_unreal = 0.0
         for r in open_t:
-            entry_dt = datetime.fromisoformat(r["entry_time"].replace("Z", "+00:00"))
+            entry_dt = datetime.fromisoformat(
+                r["entry_time"].replace("Z", "+00:00"))
             if entry_dt.tzinfo is None:
                 entry_dt = entry_dt.replace(tzinfo=timezone.utc)
             held = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
@@ -1224,7 +1205,8 @@ class TrendBot:
             # broker-truth P&L (expected_yield), RUB for FORTS, USD→RUB for Neo
             upnl = float(d.get("unrealized", 0.0)) * (self._fx_usdrub if is_neo else 1.0)
             sgn = 1.0 if r["direction"] == "buy" else -1.0
-            upct = (cur - float(r["entry_price"])) / max(float(r["entry_price"]), 1e-9) * 100 * sgn
+            upct = ((cur - float(r["entry_price"])) / max(float(r["entry_price"]), 1e-9)
+                    * 100 * sgn)
             total_unreal += upnl
             if r["pattern_name"]:
                 lines.append(
@@ -1247,7 +1229,7 @@ class TrendBot:
         if bool(self.settings.TREND_TRADE_NEO):
             summ, ok = await self.broker.get_margin_summary()
             if ok:
-                suff = summ["sufficiency"]  # ratio: <1 ⇒ margin call
+                suff = summ["sufficiency"]   # ratio: <1 ⇒ margin call
                 flag = "🟢" if suff >= 2 else ("🟡" if suff >= 1.2 else "🔴")
                 lines.append(
                     f"Margin {flag}: liquid {summ['liquid']:,.0f}₽ | "
@@ -1267,7 +1249,9 @@ class TrendBot:
             row = await cur.fetchone()
         if row and row[0]:
             wr = row[1] / row[0] * 100
-            lines.append(f"7-day: {row[0]} closed, win {wr:.0f}%, NET {row[2]:+.2f} ₽")
+            lines.append(
+                f"7-day: {row[0]} closed, win {wr:.0f}%, NET {row[2]:+.2f} ₽"
+            )
         return "\n".join(lines)
 
     async def shutdown(self):

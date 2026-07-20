@@ -79,11 +79,9 @@ class BrokerClient:
     def account_id(self) -> str:
         return self._account_id
 
-    # t-tech SDK (successor of tinkoff-investments) defaults to
-    # invest-public-api.tbank.ru, whose TLS cert chains to the Russian Trusted
-    # Root CA — absent from grpc/certifi trust stores → CERTIFICATE_VERIFY_FAILED.
-    # Pin the connection to the legacy host (HARICA cert, internationally
-    # trusted) and force the SNI/cert name to match.  Same IP, only cert differs.
+    # t-tech SDK defaults to invest-public-api.tbank.ru, whose cert chains to
+    # the Russian Trusted Root CA (absent from grpc/certifi) → verify fails.
+    # Pin to the legacy HARICA-cert host and force the SNI to match.
     _API_HOST = "invest-public-api.tinkoff.ru:443"
     _SSL_OPTS = [("grpc.ssl_target_name_override", "invest-public-api.tinkoff.ru")]
 
@@ -228,8 +226,7 @@ class BrokerClient:
         Returns 1.0 on failure (caller should log)."""
         try:
             m = await self._safe_call(
-                lambda: self._services.instruments.get_futures_margin(figi=figi)
-            )
+                lambda: self._services.instruments.get_futures_margin(figi=figi))
             inc = float(quotation_to_decimal(m.min_price_increment))
             amt = float(quotation_to_decimal(m.min_price_increment_amount))
             if inc > 0 and amt > 0:
@@ -257,7 +254,7 @@ class BrokerClient:
         out = {
             "initial_margin_buy": Decimal(0),
             "initial_margin_sell": Decimal(0),
-            "dlong": Decimal(0),  # ГО fraction for long (e.g. 0.24 = 24% of price)
+            "dlong": Decimal(0),   # ГО fraction for long (e.g. 0.24 = 24% of price)
             "dshort": Decimal(0),  # ГО fraction for short
             "min_price_increment": Decimal(0),
             "step_value": Decimal(0),
@@ -322,7 +319,9 @@ class BrokerClient:
         """
         try:
             resp = await self._safe_call(
-                lambda: self._services.instruments.get_asset_fundamentals(ids=[asset_uid])
+                lambda: self._services.instruments.get_asset_fundamentals(
+                    ids=[asset_uid]
+                )
             )
             if not resp.fundamentals:
                 return {}
@@ -355,13 +354,8 @@ class BrokerClient:
 
     # ==================== Market Data ====================
 
-    async def get_candles(
-        self,
-        figi: str,
-        from_dt: datetime,
-        to_dt: datetime,
-        interval: CandleInterval = CandleInterval.CANDLE_INTERVAL_HOUR,
-    ) -> list:
+    async def get_candles(self, figi: str, from_dt: datetime, to_dt: datetime,
+                          interval: CandleInterval = CandleInterval.CANDLE_INTERVAL_HOUR) -> list:
         """Get historical candles. Handles multi-day fetching for 1min interval."""
         all_candles = []
 
@@ -421,8 +415,13 @@ class BrokerClient:
 
     async def get_last_prices(self, figis: list[str]) -> dict[str, Decimal]:
         """Get latest prices for multiple instruments."""
-        resp = await self._safe_call(lambda: self._services.market_data.get_last_prices(figi=figis))
-        return {lp.figi: quotation_to_decimal(lp.price) for lp in resp.last_prices}
+        resp = await self._safe_call(
+            lambda: self._services.market_data.get_last_prices(figi=figis)
+        )
+        return {
+            lp.figi: quotation_to_decimal(lp.price)
+            for lp in resp.last_prices
+        }
 
     async def get_order_book(self, figi: str, depth: int = 20) -> GetOrderBookResponse:
         """Get order book (bid/ask levels)."""
@@ -476,7 +475,6 @@ class BrokerClient:
                 return float(money_to_decimal(v)) if v is not None else 0.0
             except Exception:
                 return 0.0
-
         liquid = _m("liquid_portfolio")
         starting = _m("starting_margin")
         minimal = _m("minimal_margin")
@@ -495,23 +493,42 @@ class BrokerClient:
             "starting_margin": starting,
             "minimal_margin": minimal,
             "available": max(0.0, liquid - starting),
-            "sufficiency": suff_ratio,  # ratio: <1 ⇒ margin call
+            "sufficiency": suff_ratio,   # ratio: <1 ⇒ margin call
         }, True
 
-    async def get_operations(self, from_dt: datetime, to_dt: datetime | None = None):
-        """Get account operations history."""
+    async def get_operations(self, from_dt: datetime, to_dt: datetime | None = None,
+                             operation_types=None):
+        """Account operations via the modern CURSOR endpoint (paginated),
+        replacing the deprecated operations.get_operations.
+
+        Returns a list of OperationItem — note the type field is `.type`
+        (OperationType enum), plus `.figi`, `.price` (Quotation), `.date`.
+        `operation_types` (optional list of OperationType) is applied
+        SERVER-SIDE, so callers can fetch just the ops they need."""
+        from t_tech.invest import (GetOperationsByCursorRequest,
+                                    OperationState)
         if to_dt is None:
             to_dt = datetime.now(timezone.utc)
-        resp = await self._safe_call(
-            lambda: self._services.operations.get_operations(
-                account_id=self._account_id, from_=from_dt, to=to_dt
-            )
-        )
-        return resp.operations
+        out, cursor = [], ""
+        while True:
+            req = GetOperationsByCursorRequest(
+                account_id=self._account_id, from_=from_dt, to=to_dt,
+                operation_types=operation_types or [], cursor=cursor, limit=1000,
+                state=OperationState.OPERATION_STATE_EXECUTED)
+            resp = await self._safe_call(
+                lambda r=req: self._services.operations.get_operations_by_cursor(
+                    request=r))
+            out.extend(resp.items)
+            if not resp.has_next or not resp.next_cursor:
+                break
+            cursor = resp.next_cursor
+        return out
 
     async def get_accounts(self):
         """Get all accounts."""
-        resp = await self._safe_call(lambda: self._services.users.get_accounts())
+        resp = await self._safe_call(
+            lambda: self._services.users.get_accounts()
+        )
         return resp.accounts
 
     async def get_portfolio_value(self) -> Decimal:
@@ -543,16 +560,11 @@ class BrokerClient:
             cp = getattr(p, "current_price", None)
             ap = getattr(p, "average_position_price", None)
             out[figi] = {
-                "qty": (
-                    float(quotation_to_decimal(p.quantity)) if getattr(p, "quantity", None) else 0.0
-                ),
+                "qty": float(quotation_to_decimal(p.quantity)) if getattr(p, "quantity", None) else 0.0,
                 "avg_price": float(money_to_decimal(ap)) if ap else 0.0,
                 "current_price": float(money_to_decimal(cp)) if cp else 0.0,
-                "unrealized": (
-                    float(quotation_to_decimal(p.expected_yield))
-                    if getattr(p, "expected_yield", None)
-                    else 0.0
-                ),
+                "unrealized": float(quotation_to_decimal(p.expected_yield))
+                              if getattr(p, "expected_yield", None) else 0.0,
                 "currency": (getattr(cp, "currency", "") or "").upper(),
                 "instrument_type": itype,
             }
@@ -560,7 +572,8 @@ class BrokerClient:
 
     # ==================== Orders ====================
 
-    async def post_market_order(self, figi: str, lots: int, direction: OrderDirection) -> object:
+    async def post_market_order(self, figi: str, lots: int,
+                                 direction: OrderDirection) -> object:
         """Place a market order."""
         logger.info(f"Market order: {direction.name} {lots} lots of {figi}")
         return await self._safe_call(
@@ -573,9 +586,8 @@ class BrokerClient:
             )
         )
 
-    async def post_market_order_with_fill(
-        self, figi: str, lots: int, direction: OrderDirection
-    ) -> dict:
+    async def post_market_order_with_fill(self, figi: str, lots: int,
+                                          direction: OrderDirection) -> dict:
         """Place a market order and return the REAL fill, not a last-price guess.
 
         The previous code recorded `get_last_price` snapshots as the "fill",
@@ -643,9 +655,8 @@ class BrokerClient:
             "lots_executed": lots_exec or lots,
         }
 
-    async def post_limit_order(
-        self, figi: str, lots: int, price: Decimal, direction: OrderDirection
-    ) -> object:
+    async def post_limit_order(self, figi: str, lots: int, price: Decimal,
+                                direction: OrderDirection) -> object:
         """Place a limit order."""
         logger.info(f"Limit order: {direction.name} {lots} lots of {figi} @ {price}")
         return await self._safe_call(
@@ -685,9 +696,8 @@ class BrokerClient:
 
     # ==================== Stop Orders ====================
 
-    async def post_stop_loss(
-        self, figi: str, lots: int, stop_price: Decimal, direction: StopOrderDirection
-    ) -> str:
+    async def post_stop_loss(self, figi: str, lots: int, stop_price: Decimal,
+                              direction: StopOrderDirection) -> str:
         """Place a stop-loss order. Returns stop_order_id."""
         resp = await self._safe_call(
             lambda: self._services.stop_orders.post_stop_order(
@@ -703,9 +713,8 @@ class BrokerClient:
         logger.info(f"Stop-loss placed: {figi} @ {stop_price}, id={resp.stop_order_id}")
         return resp.stop_order_id
 
-    async def post_take_profit(
-        self, figi: str, lots: int, stop_price: Decimal, direction: StopOrderDirection
-    ) -> str:
+    async def post_take_profit(self, figi: str, lots: int, stop_price: Decimal,
+                                direction: StopOrderDirection) -> str:
         """Place a take-profit order. Returns stop_order_id."""
         resp = await self._safe_call(
             lambda: self._services.stop_orders.post_stop_order(
@@ -732,15 +741,16 @@ class BrokerClient:
     async def get_stop_orders(self) -> list:
         """Get all active stop orders."""
         resp = await self._safe_call(
-            lambda: self._services.stop_orders.get_stop_orders(account_id=self._account_id)
+            lambda: self._services.stop_orders.get_stop_orders(
+                account_id=self._account_id
+            )
         )
         return resp.stop_orders
 
     # ==================== Smart Order Execution ====================
 
-    async def get_fair_price(
-        self, figi: str, direction: str, mode: str = "limit_aggressive"
-    ) -> Optional[Decimal]:
+    async def get_fair_price(self, figi: str, direction: str,
+                              mode: str = "limit_aggressive") -> Optional[Decimal]:
         """Calculate fair limit price from order book.
 
         Args:
@@ -810,7 +820,7 @@ class BrokerClient:
                 status = state.execution_report_status.name
 
                 if status in (
-                    "EXECUTION_REPORT_STATUS_FILL",  # fully filled
+                    "EXECUTION_REPORT_STATUS_FILL",       # fully filled
                     "EXECUTION_REPORT_STATUS_CANCELLED",
                     "EXECUTION_REPORT_STATUS_REJECTED",
                 ):
@@ -933,8 +943,9 @@ class BrokerClient:
             # Blend fill price over ACTUAL filled lots (not requested)
             if total_filled > 0:
                 blended = (
-                    avg_fill_price * filled_lots + market_price * market_filled
-                ) / total_filled
+                    (avg_fill_price * filled_lots + market_price * market_filled)
+                    / total_filled
+                )
             else:
                 blended = market_price
 

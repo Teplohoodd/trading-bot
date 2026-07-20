@@ -21,16 +21,10 @@ logger = logging.getLogger(__name__)
 class TradingEngine:
     """Main trading orchestrator. Runs multiple async loops."""
 
-    def __init__(
-        self,
-        broker: BrokerClient,
-        risk_manager: RiskManager,
-        strategies: list,
-        screener: Screener,
-        db: Repository,
-        notification_queue: asyncio.Queue,
-        settings: Settings,
-    ):
+    def __init__(self, broker: BrokerClient, risk_manager: RiskManager,
+                 strategies: list, screener: Screener,
+                 db: Repository, notification_queue: asyncio.Queue,
+                 settings: Settings):
         self.broker = broker
         self.risk_manager = risk_manager
         self.strategies = {s.name: s for s in strategies}
@@ -85,7 +79,9 @@ class TradingEngine:
         # restart safe.
         try:
             peaks = await self.db.get_position_peaks()
-            self._position_peaks = {tid: dict(info) for tid, info in peaks.items()}
+            self._position_peaks = {
+                tid: dict(info) for tid, info in peaks.items()
+            }
             logger.info(f"Hydrated {len(self._position_peaks)} position peaks from DB")
         except Exception as e:
             logger.warning(f"Could not hydrate position_peaks: {e}")
@@ -93,7 +89,9 @@ class TradingEngine:
             cd = await self.db.get_cooldowns()
             for figi, ts in cd.items():
                 try:
-                    self._recent_closes[figi] = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    self._recent_closes[figi] = datetime.fromisoformat(
+                        ts.replace("Z", "+00:00")
+                    )
                 except Exception:
                     pass
             logger.info(f"Hydrated {len(self._recent_closes)} cooldowns from DB")
@@ -127,11 +125,10 @@ class TradingEngine:
         """
         try:
             from utils.helpers import is_moex_open, is_weekend_session
-
             market_state = (
-                "open"
-                if is_moex_open()
-                else "weekend-session" if is_weekend_session() else "closed"
+                "open" if is_moex_open()
+                else "weekend-session" if is_weekend_session()
+                else "closed"
             )
             custom = await self.db.get_custom_tickers()
             custom_figis = [c["figi"] for c in custom if c.get("figi")]
@@ -144,18 +141,16 @@ class TradingEngine:
                 f"market={market_state}"
             )
             top = ", ".join(c.get("ticker", "?") for c in self._watchlist[:5])
-            await self._notify(
-                Notification(
-                    type=NotificationType.INFO,
-                    title=f"Screener ready: {n} tickers",
-                    data={
-                        "top5": top,
-                        "mode": self._mode,
-                        "market": market_state,
-                        "total": n,
-                    },
-                )
-            )
+            await self._notify(Notification(
+                type=NotificationType.INFO,
+                title=f"Screener ready: {n} tickers",
+                data={
+                    "top5": top,
+                    "mode": self._mode,
+                    "market": market_state,
+                    "total": n,
+                },
+            ))
         except Exception as e:
             logger.error(f"Startup watchlist scan failed: {e}", exc_info=True)
 
@@ -167,9 +162,10 @@ class TradingEngine:
                     await self._run_scan_cycle()
             except Exception as e:
                 logger.error(f"Autonomous loop error: {e}", exc_info=True)
-                await self._notify(
-                    Notification(type=NotificationType.ERROR, title=f"Autonomous loop error: {e}")
-                )
+                await self._notify(Notification(
+                    type=NotificationType.ERROR,
+                    title=f"Autonomous loop error: {e}"
+                ))
 
             interval = self.settings.SCAN_INTERVAL_MINUTES * 60
             await asyncio.sleep(interval)
@@ -177,7 +173,6 @@ class TradingEngine:
     async def _run_scan_cycle(self):
         """One full scan: screen -> signal -> risk check -> execute."""
         from utils.helpers import is_moex_open, now_msk
-
         if not is_moex_open():
             logger.debug("Market closed, skipping scan")
             return
@@ -225,19 +220,10 @@ class TradingEngine:
         # zero-signal cycles produced no diagnostic trail and the bot's silence
         # was indistinguishable between "no edge today" vs "filter bug".
         skip_counts = {
-            "open_position": 0,
-            "cooldown": 0,
-            "hold": 0,
-            "low_vol": 0,
-            "dir_mismatch": 0,
-            "short_low_conf": 0,
-            "short_cutoff": 0,
-            "short_gap_open": 0,
-            "rejected_risk": 0,
-            "executed": 0,
-            "max_positions": 0,
-            "low_short_carry": 0,
-            "errors": 0,
+            "open_position": 0, "cooldown": 0, "hold": 0, "low_vol": 0,
+            "dir_mismatch": 0, "short_low_conf": 0, "short_cutoff": 0,
+            "short_gap_open": 0, "rejected_risk": 0, "executed": 0,
+            "max_positions": 0, "low_short_carry": 0, "errors": 0,
         }
 
         for candidate in self._watchlist:
@@ -251,13 +237,9 @@ class TradingEngine:
             if self._is_in_cooldown(figi):
                 last = self._recent_closes.get(figi)
                 remaining = (
-                    (
-                        self.settings.SAME_TICKER_COOLDOWN_MINUTES
-                        - int((datetime.now(timezone.utc) - last).total_seconds() // 60)
-                    )
-                    if last
-                    else 0
-                )
+                    self.settings.SAME_TICKER_COOLDOWN_MINUTES
+                    - int((datetime.now(timezone.utc) - last).total_seconds() // 60)
+                ) if last else 0
                 logger.debug(
                     f"{ticker}: in cooldown after recent close "
                     f"(~{remaining}m remaining), skipping"
@@ -289,9 +271,8 @@ class TradingEngine:
 
             try:
                 candidate_kind = candidate.get("kind", "share")
-                signal = await self._evaluate_instrument(
-                    figi, ticker, instrument_kind=candidate_kind
-                )
+                signal = await self._evaluate_instrument(figi, ticker,
+                                                         instrument_kind=candidate_kind)
                 if signal.direction == "hold":
                     skip_counts["hold"] += 1
                     continue
@@ -306,7 +287,9 @@ class TradingEngine:
                 # model's directional signal is noise.  Skip entries when
                 # current ATR% is below ATR_FILTER_MEDIAN_MULT × median over
                 # the last 60 bars.  Candidate ATR% is pre-scored by screener.
-                atr_filter_mult = getattr(self.settings, "ATR_FILTER_MEDIAN_MULT", 0.8)
+                atr_filter_mult = getattr(
+                    self.settings, "ATR_FILTER_MEDIAN_MULT", 0.8
+                )
                 if atr_filter_mult > 0:
                     cand_atr_pct = candidate.get("atr_pct", 0.0)
                     cand_atr_median = candidate.get("atr_pct_median60", 0.0)
@@ -334,10 +317,7 @@ class TradingEngine:
 
                 # Short-specific tighter confidence gate (shorts have more
                 # tail risk than longs — forced closes, borrow recall, etc.)
-                if (
-                    signal.direction == "sell"
-                    and signal.confidence < self.settings.SHORT_MIN_CONFIDENCE
-                ):
+                if signal.direction == "sell" and signal.confidence < self.settings.SHORT_MIN_CONFIDENCE:
                     logger.info(
                         f"{ticker}: short signal below SHORT_MIN_CONFIDENCE "
                         f"({signal.confidence:.2f} < {self.settings.SHORT_MIN_CONFIDENCE}), skipping"
@@ -369,21 +349,14 @@ class TradingEngine:
                 # update path, every signal stayed approved=0 in DB even when
                 # actually executed (data-quality bug observed pre-2026-04-27).
                 signal_row_id = await self.db.insert_signal(
-                    figi=figi,
-                    ticker=ticker,
-                    direction=signal.direction,
-                    confidence=signal.confidence,
-                    strategy=signal.strategy_name,
-                    features=signal.features,
-                    approved=False,
-                    rejection_reason="",
+                    figi=figi, ticker=ticker, direction=signal.direction,
+                    confidence=signal.confidence, strategy=signal.strategy_name,
+                    features=signal.features, approved=False, rejection_reason=""
                 )
 
                 # Risk check
                 approval = await self.risk_manager.approve_trade(
-                    figi=figi,
-                    ticker=ticker,
-                    direction=signal.direction,
+                    figi=figi, ticker=ticker, direction=signal.direction,
                     confidence=signal.confidence,
                     suggested_stop_pct=signal.suggested_stop_pct,
                     suggested_target_pct=signal.suggested_target_pct,
@@ -395,8 +368,7 @@ class TradingEngine:
                     # forensic / postmortem queries have a non-empty trail.
                     try:
                         await self.db.update_signal_approval(
-                            signal_row_id,
-                            approved=False,
+                            signal_row_id, approved=False,
                             rejection_reason=str(approval.reason)[:200],
                         )
                     except Exception as e:
@@ -420,11 +392,8 @@ class TradingEngine:
                     # overnight carry threshold so we pay 0 carry.  Set
                     # SHORT_CARRY_FREE_THRESHOLD_RUB = 0 to disable.
                     # Futures don't pay overnight short carry — skip the cap.
-                    approval_kind = (
-                        approval.risk_metrics.get("instrument_kind", "share")
-                        if approval.risk_metrics
-                        else "share"
-                    )
+                    approval_kind = approval.risk_metrics.get("instrument_kind", "share") \
+                        if approval.risk_metrics else "share"
                     threshold = self.settings.SHORT_CARRY_FREE_THRESHOLD_RUB
                     if threshold > 0 and approval_kind != "future":
                         price_f = approval.risk_metrics.get("price", 0.0)
@@ -473,15 +442,9 @@ class TradingEngine:
                     break
 
                 # Autonomous: Execute immediately
-                result = await self._execute_trade(
-                    figi,
-                    ticker,
-                    signal.direction,
-                    approval.lots,
-                    signal.strategy_name,
-                    signal.confidence,
-                    approval,
-                )
+                result = await self._execute_trade(figi, ticker, signal.direction,
+                                                    approval.lots, signal.strategy_name,
+                                                    signal.confidence, approval)
                 if result.get("success"):
                     skip_counts["executed"] += 1
                     # Mark the signal row as approved+executed so DB reflects
@@ -515,12 +478,14 @@ class TradingEngine:
         # debug lines.  Added 2026-04-27 after a 3-day silent gap caused by
         # over-aggressive weekday + hour filters going un-logged.
         nz = {k: v for k, v in skip_counts.items() if v > 0}
-        logger.info(f"Scan summary: candidates={len(self._watchlist)} {nz}")
+        logger.info(
+            f"Scan summary: candidates={len(self._watchlist)} {nz}"
+        )
 
-    async def _evaluate_instrument(self, figi: str, ticker: str, instrument_kind: str = "share"):
+    async def _evaluate_instrument(self, figi: str, ticker: str,
+                                    instrument_kind: str = "share"):
         """Run strategy pipeline for an instrument, return aggregated signal."""
         from strategy.base import Signal
-
         now = datetime.now(timezone.utc)
         from_dt = now - timedelta(days=30)
 
@@ -528,17 +493,10 @@ class TradingEngine:
             figi, from_dt, now, CandleInterval.CANDLE_INTERVAL_HOUR
         )
         if len(candles) < 50:
-            return Signal(
-                figi=figi,
-                ticker=ticker,
-                direction="hold",
-                confidence=0.0,
-                strategy_name="none",
-                timestamp=now,
-            )
+            return Signal(figi=figi, ticker=ticker, direction="hold",
+                         confidence=0.0, strategy_name="none", timestamp=now)
 
         import pandas as pd
-
         df = _candles_to_df(candles)
 
         # Get order book.  We always populate a context dict so strategies
@@ -562,12 +520,10 @@ class TradingEngine:
                 total_bid = sum(b.quantity for b in ob.bids)
                 total_ask = sum(a.quantity for a in ob.asks)
                 total = total_bid + total_ask
-                order_book.update(
-                    {
-                        "spread_bps": (ask - bid) / mid * 10000 if mid > 0 else 0,
-                        "imbalance": (total_bid - total_ask) / total if total > 0 else 0,
-                    }
-                )
+                order_book.update({
+                    "spread_bps": (ask - bid) / mid * 10000 if mid > 0 else 0,
+                    "imbalance": (total_bid - total_ask) / total if total > 0 else 0,
+                })
         except Exception:
             pass
 
@@ -575,7 +531,6 @@ class TradingEngine:
         regime_weights = {"ml_lightgbm": 0.6, "technical": 0.4}
         if self._regime_detector:
             from strategy.regime import RegimeDetector
-
             regime = self._regime_detector.detect(df)
             regime_weights = self._regime_detector.get_strategy_weights(regime)
             regime_scale = self._regime_detector.get_position_scale(regime)
@@ -593,24 +548,16 @@ class TradingEngine:
                 logger.debug(f"Strategy {name} error for {ticker}: {e}")
 
         if not signals:
-            return Signal(
-                figi=figi,
-                ticker=ticker,
-                direction="hold",
-                confidence=0.0,
-                strategy_name="none",
-                timestamp=now,
-            )
+            return Signal(figi=figi, ticker=ticker, direction="hold",
+                         confidence=0.0, strategy_name="none", timestamp=now)
 
         # Weighted voting
-        buy_score = sum(w for s, w in signals if s.direction == "buy") * (
-            sum(s.confidence * w for s, w in signals if s.direction == "buy")
-            / max(sum(w for s, w in signals if s.direction == "buy"), 1e-9)
-        )
-        sell_score = sum(w for s, w in signals if s.direction == "sell") * (
-            sum(s.confidence * w for s, w in signals if s.direction == "sell")
-            / max(sum(w for s, w in signals if s.direction == "sell"), 1e-9)
-        )
+        buy_score = sum(w for s, w in signals if s.direction == "buy") * \
+                    (sum(s.confidence * w for s, w in signals if s.direction == "buy") /
+                     max(sum(w for s, w in signals if s.direction == "buy"), 1e-9))
+        sell_score = sum(w for s, w in signals if s.direction == "sell") * \
+                     (sum(s.confidence * w for s, w in signals if s.direction == "sell") /
+                      max(sum(w for s, w in signals if s.direction == "sell"), 1e-9))
 
         # Only count strategies that took a directional stance in the denominator.
         # Abstaining strategies (hold + ~zero confidence) should not dilute
@@ -643,11 +590,8 @@ class TradingEngine:
         best_signal = max(signals, key=lambda x: x[0].confidence * x[1])[0]
 
         from strategy.base import Signal
-
         return Signal(
-            figi=figi,
-            ticker=ticker,
-            direction=direction,
+            figi=figi, ticker=ticker, direction=direction,
             confidence=round(confidence, 3),
             strategy_name="+".join(self.strategies.keys()),
             timestamp=now,
@@ -656,16 +600,9 @@ class TradingEngine:
             features=best_signal.features,
         )
 
-    async def _execute_trade(
-        self,
-        figi: str,
-        ticker: str,
-        direction: str,
-        lots: int,
-        strategy: str,
-        confidence: float,
-        approval,
-    ) -> dict:
+    async def _execute_trade(self, figi: str, ticker: str, direction: str,
+                              lots: int, strategy: str, confidence: float,
+                              approval) -> dict:
         """Place order with smart execution and record in database.
 
         Uses limit orders (aggressive/passive) or market depending on
@@ -673,12 +610,9 @@ class TradingEngine:
         doesn't fill within LIMIT_ORDER_TIMEOUT.
         """
         from t_tech.invest import OrderDirection, StopOrderDirection
-
-        order_dir = (
-            OrderDirection.ORDER_DIRECTION_BUY
-            if direction == "buy"
-            else OrderDirection.ORDER_DIRECTION_SELL
-        )
+        order_dir = (OrderDirection.ORDER_DIRECTION_BUY
+                     if direction == "buy"
+                     else OrderDirection.ORDER_DIRECTION_SELL)
 
         # Serialise entries across all paths (scan / advisory / manual) and
         # re-check the open-positions snapshot inside the lock.  The scan
@@ -698,26 +632,13 @@ class TradingEngine:
                 logger.debug(f"Dedup snapshot check skipped: {e}")
 
             return await self._execute_trade_locked(
-                figi,
-                ticker,
-                direction,
-                lots,
-                strategy,
-                confidence,
-                approval,
-                order_dir,
+                figi, ticker, direction, lots, strategy, confidence,
+                approval, order_dir,
             )
 
     async def _execute_trade_locked(
-        self,
-        figi: str,
-        ticker: str,
-        direction: str,
-        lots: int,
-        strategy: str,
-        confidence: float,
-        approval,
-        order_dir,
+        self, figi: str, ticker: str, direction: str, lots: int,
+        strategy: str, confidence: float, approval, order_dir,
     ) -> dict:
         """Inner body of _execute_trade — runs inside self._entry_lock."""
         from t_tech.invest import StopOrderDirection
@@ -775,9 +696,8 @@ class TradingEngine:
             # Recalculate stops from actual fill price (approval computed from pre-trade price)
             atr_pct = approval.risk_metrics.get("atr_pct", None)
             if atr_pct and price > 0:
-                stop_dist = approval.risk_metrics.get(
-                    "stop_distance", abs(stop - float(approval.risk_metrics.get("price", price)))
-                )
+                stop_dist = approval.risk_metrics.get("stop_distance",
+                                                       abs(stop - float(approval.risk_metrics.get("price", price))))
                 target_dist = approval.risk_metrics.get("target_distance", stop_dist * 1.5)
                 if direction == "buy":
                     stop = price - stop_dist
@@ -788,11 +708,8 @@ class TradingEngine:
 
             # Get instrument lot size + kind (share/future)
             lot_size = 1
-            instrument_kind = (
-                approval.risk_metrics.get("instrument_kind", "share")
-                if hasattr(approval, "risk_metrics") and approval.risk_metrics
-                else "share"
-            )
+            instrument_kind = approval.risk_metrics.get("instrument_kind", "share") \
+                if hasattr(approval, "risk_metrics") and approval.risk_metrics else "share"
             try:
                 instrument, kind = await self.broker.get_instrument_info(figi)
                 if instrument is not None:
@@ -803,11 +720,9 @@ class TradingEngine:
                 pass
 
             # Place stop-loss and take-profit
-            stop_dir = (
-                StopOrderDirection.STOP_ORDER_DIRECTION_SELL
-                if direction == "buy"
-                else StopOrderDirection.STOP_ORDER_DIRECTION_BUY
-            )
+            stop_dir = (StopOrderDirection.STOP_ORDER_DIRECTION_SELL
+                        if direction == "buy"
+                        else StopOrderDirection.STOP_ORDER_DIRECTION_BUY)
             # Round to the instrument's min_price_increment so the broker accepts the stop prices
             try:
                 stop_rounded = await self.broker._round_to_increment(figi, Decimal(str(stop)))
@@ -857,43 +772,36 @@ class TradingEngine:
                     f"TP={'OK' if tp_ok else 'MISSING'} (filled {filled_lots} lots @ {price:.4f})"
                 )
                 try:
-                    await self._notify(
-                        Notification(
-                            type=NotificationType.RISK_ALERT,
-                            title=f"⚠ {ticker}: stop orders incomplete",
-                            data={
-                                "ticker": ticker,
-                                "lots": filled_lots,
-                                "price": round(price, 4),
-                                "stop_loss_placed": sl_ok,
-                                "take_profit_placed": tp_ok,
-                                "stop_price": round(float(stop_rounded), 4),
-                                "target_price": round(float(target_rounded), 4),
-                                "hint": (
-                                    "Engine-side monitor still applies trailing + reversal "
-                                    "exits every 5 min, but broker-side protection is "
-                                    "incomplete. Consider closing manually."
-                                ),
-                            },
-                        )
-                    )
+                    await self._notify(Notification(
+                        type=NotificationType.RISK_ALERT,
+                        title=f"⚠ {ticker}: stop orders incomplete",
+                        data={
+                            "ticker": ticker,
+                            "lots": filled_lots,
+                            "price": round(price, 4),
+                            "stop_loss_placed": sl_ok,
+                            "take_profit_placed": tp_ok,
+                            "stop_price": round(float(stop_rounded), 4),
+                            "target_price": round(float(target_rounded), 4),
+                            "hint": (
+                                "Engine-side monitor still applies trailing + reversal "
+                                "exits every 5 min, but broker-side protection is "
+                                "incomplete. Consider closing manually."
+                            ),
+                        },
+                    ))
                 except Exception:
                     pass
 
             # Record trade with ACTUAL filled lots (not requested).  Keeps
             # P&L / sizing / position-sync consistent with broker state.
             trade = Trade(
-                figi=figi,
-                ticker=ticker,
-                direction=direction,
-                lots=filled_lots,
-                entry_price=price,
-                strategy=strategy,
+                figi=figi, ticker=ticker, direction=direction,
+                lots=filled_lots, entry_price=price, strategy=strategy,
                 signal_confidence=confidence,
                 entry_time=datetime.now(timezone.utc).isoformat(),
                 entry_order_id=order_id,
-                stop_loss=round(stop, 4),
-                take_profit=round(target, 4),
+                stop_loss=round(stop, 4), take_profit=round(target, 4),
                 lot_size=lot_size,
                 instrument_kind=instrument_kind,
             )
@@ -901,28 +809,20 @@ class TradingEngine:
 
             trade_data = {
                 "id": trade_id,
-                "figi": figi,
-                "ticker": ticker,
-                "direction": direction,
-                "lots": filled_lots,
-                "entry_price": price,
-                "stop_loss": round(stop, 4),
-                "take_profit": round(target, 4),
-                "strategy": strategy,
-                "signal_confidence": confidence,
+                "figi": figi, "ticker": ticker, "direction": direction,
+                "lots": filled_lots, "entry_price": price,
+                "stop_loss": round(stop, 4), "take_profit": round(target, 4),
+                "strategy": strategy, "signal_confidence": confidence,
                 "lot_size": lot_size,
                 "instrument_kind": instrument_kind,
                 "order_type": order_type,
             }
 
-            await self._notify(
-                Notification(
-                    type=NotificationType.TRADE_OPENED,
-                    title=f"Opened {direction.upper()} {ticker}",
-                    data=trade_data,
-                    priority="high",
-                )
-            )
+            await self._notify(Notification(
+                type=NotificationType.TRADE_OPENED,
+                title=f"Opened {direction.upper()} {ticker}",
+                data=trade_data, priority="high"
+            ))
 
             logger.info(
                 f"Trade opened: {direction.upper()} {filled_lots} lots {ticker} "
@@ -932,14 +832,15 @@ class TradingEngine:
 
         except Exception as e:
             logger.error(f"Execute trade failed for {ticker}: {e}", exc_info=True)
-            await self._notify(
-                Notification(type=NotificationType.ERROR, title=f"Order failed: {ticker} - {e}")
-            )
+            await self._notify(Notification(
+                type=NotificationType.ERROR,
+                title=f"Order failed: {ticker} - {e}"
+            ))
             return {"success": False, "reason": str(e)}
 
-    async def _execute_twap(
-        self, figi: str, total_lots: int, direction, exec_mode: str, timeout: float
-    ) -> tuple[str, float, str, int]:
+    async def _execute_twap(self, figi: str, total_lots: int,
+                             direction, exec_mode: str,
+                             timeout: float) -> tuple[str, float, str, int]:
         """TWAP execution using limit or market slices.
 
         Returns (order_id, avg_price, order_type, total_filled_lots).
@@ -963,7 +864,6 @@ class TradingEngine:
     async def _queue_advisory_signal(self, signal, approval):
         """Store a pending signal and notify user to approve/reject."""
         import time as _time
-
         signal_id = f"{signal.ticker}_{signal.direction}_{int(_time.time())}"
         # Try to fetch lot_size so the notification can show shares/RUB volume
         lot_size = 1
@@ -986,14 +886,12 @@ class TradingEngine:
             "take_profit": approval.take_profit_price,
             "risk_metrics": approval.risk_metrics,
         }
-        await self._notify(
-            Notification(
-                type=NotificationType.ADVISORY_SIGNAL,
-                title=f"Signal: {signal.direction.upper()} {signal.ticker}",
-                data=self._pending_signals[signal_id],
-                priority="high",
-            )
-        )
+        await self._notify(Notification(
+            type=NotificationType.ADVISORY_SIGNAL,
+            title=f"Signal: {signal.direction.upper()} {signal.ticker}",
+            data=self._pending_signals[signal_id],
+            priority="high",
+        ))
         logger.info(f"Advisory signal queued: {signal_id}")
 
     async def execute_advisory_signal(self, signal_id: str) -> dict:
@@ -1003,7 +901,6 @@ class TradingEngine:
             return {"success": False, "reason": "Signal expired or not found"}
 
         from risk.manager import TradeApproval
-
         approval = TradeApproval(
             approved=True,
             lots=pending["lots"],
@@ -1014,13 +911,8 @@ class TradingEngine:
             risk_metrics=pending["risk_metrics"],
         )
         return await self._execute_trade(
-            pending["figi"],
-            pending["ticker"],
-            pending["direction"],
-            pending["lots"],
-            pending["strategy"],
-            pending["confidence"],
-            approval,
+            pending["figi"], pending["ticker"], pending["direction"],
+            pending["lots"], pending["strategy"], pending["confidence"], approval,
         )
 
     def get_pending_signals(self) -> list[dict]:
@@ -1047,7 +939,8 @@ class TradingEngine:
         # GC trailing-stop state for trades that no longer exist
         live_ids = {t["id"] for t in open_trades}
         self._position_peaks = {
-            tid: info for tid, info in self._position_peaks.items() if tid in live_ids
+            tid: info for tid, info in self._position_peaks.items()
+            if tid in live_ids
         }
 
         now = datetime.now(timezone.utc)
@@ -1119,27 +1012,24 @@ class TradingEngine:
                 # to target, then closes the position if price retraces by
                 # TRAIL_ATR_MULT × ATR from the best price seen.
                 if self.settings.TRAILING_STOP_ENABLED:
-                    peak_info = self._position_peaks.setdefault(
-                        trade_id,
-                        {
-                            "peak_price": entry_price,
-                            "activated": False,
-                            "partial_taken": False,
-                            "partial_price": None,
-                        },
-                    )
+                    peak_info = self._position_peaks.setdefault(trade_id, {
+                        "peak_price": entry_price,
+                        "activated": False,
+                        "partial_taken": False,
+                        "partial_price": None,
+                    })
                     prev_peak = peak_info["peak_price"]
                     prev_activated = peak_info["activated"]
                     if direction == "buy":
-                        peak_info["peak_price"] = max(peak_info["peak_price"], current_price)
+                        peak_info["peak_price"] = max(
+                            peak_info["peak_price"], current_price
+                        )
                     else:
                         peak_info["peak_price"] = min(
                             peak_info["peak_price"] or current_price, current_price
                         )
-                    if (
-                        not peak_info["activated"]
-                        and progress >= self.settings.TRAILING_STOP_ACTIVATION_FRAC
-                    ):
+                    if (not peak_info["activated"]
+                            and progress >= self.settings.TRAILING_STOP_ACTIVATION_FRAC):
                         peak_info["activated"] = True
                         logger.info(
                             f"{ticker}: trailing stop ACTIVATED at "
@@ -1148,10 +1038,8 @@ class TradingEngine:
                         )
                     # Persist when peak meaningfully moved or activation flipped.
                     # Avoid hammering DB every tick — only on real changes.
-                    if (
-                        peak_info["peak_price"] != prev_peak
-                        or peak_info["activated"] != prev_activated
-                    ):
+                    if (peak_info["peak_price"] != prev_peak
+                            or peak_info["activated"] != prev_activated):
                         try:
                             await self.db.upsert_position_peak(
                                 trade_id=trade_id,
@@ -1166,7 +1054,6 @@ class TradingEngine:
                     if peak_info["activated"]:
                         # Compute ATR for trail distance
                         from analysis.indicators import compute_indicators
-
                         try:
                             df_ind = compute_indicators(df)
                             atr = float(df_ind.iloc[-1].get("atr_14") or 0)
@@ -1212,14 +1099,11 @@ class TradingEngine:
                 # off at MFE ≥ PARTIAL_TP_TRIGGER_ATR × ATR converts those
                 # round-trip losers into break-even-or-better partial-winners
                 # while leaving the runner half on for the trailing stop.
-                if (
-                    getattr(self.settings, "PARTIAL_TP_ENABLED", False)
-                    and not (self._position_peaks.get(trade_id, {}).get("partial_taken", False))
-                    and trade["lots"] >= getattr(self.settings, "PARTIAL_TP_MIN_LOTS", 2)
-                ):
+                if (getattr(self.settings, "PARTIAL_TP_ENABLED", False)
+                        and not (self._position_peaks.get(trade_id, {}).get("partial_taken", False))
+                        and trade["lots"] >= getattr(self.settings, "PARTIAL_TP_MIN_LOTS", 2)):
                     try:
                         from analysis.indicators import compute_indicators as _ci
-
                         df_ind2 = _ci(df)
                         atr_now = float(df_ind2.iloc[-1].get("atr_14") or 0)
                     except Exception:
@@ -1245,13 +1129,10 @@ class TradingEngine:
                                     trade, scale_lots, current_price
                                 )
                                 if ok:
-                                    pi = self._position_peaks.setdefault(
-                                        trade_id,
-                                        {
-                                            "peak_price": entry_price,
-                                            "activated": False,
-                                        },
-                                    )
+                                    pi = self._position_peaks.setdefault(trade_id, {
+                                        "peak_price": entry_price,
+                                        "activated": False,
+                                    })
                                     pi["partial_taken"] = True
                                     pi["partial_price"] = current_price
                                     try:
@@ -1376,11 +1257,9 @@ class TradingEngine:
                             # For losers this gate is skipped — we want to
                             # cut losses on strong reversal signals, not
                             # ride every mistake to the stop-loss.
-                            if (
-                                pnl_pct > 0
-                                and target_dist > 0
-                                and progress < self.settings.MIN_TARGET_PROGRESS_FRAC
-                            ):
+                            if (pnl_pct > 0
+                                    and target_dist > 0
+                                    and progress < self.settings.MIN_TARGET_PROGRESS_FRAC):
                                 logger.info(
                                     f"{ticker}: ignoring signal_reversal "
                                     f"(winner, progress {progress*100:.0f}% < "
@@ -1457,39 +1336,34 @@ class TradingEngine:
                     exit_price = 0.0
                     try:
                         from t_tech.invest import OperationType
-
                         from_dt = datetime.now(timezone.utc) - timedelta(minutes=90)
-                        ops = await self.broker.get_operations(from_dt=from_dt)
                         # Long close = SELL; short close = BUY
                         if trade.get("direction") == "sell":
-                            close_types = {
+                            close_types = [
                                 OperationType.OPERATION_TYPE_BUY,
                                 OperationType.OPERATION_TYPE_BUY_MARGIN,
-                            }
+                            ]
                         else:
-                            close_types = {
+                            close_types = [
                                 OperationType.OPERATION_TYPE_SELL,
                                 OperationType.OPERATION_TYPE_SELL_MARGIN,
-                            }
+                            ]
+                        ops = await self.broker.get_operations(
+                            from_dt=from_dt, operation_types=close_types)
                         figi_ops = [
-                            op
-                            for op in ops
+                            op for op in ops
                             if getattr(op, "figi", None) == trade["figi"]
-                            and getattr(op, "operation_type", None) in close_types
                         ]
                         if figi_ops:
                             # Most recent matching operation
                             figi_ops.sort(
-                                key=lambda o: getattr(
-                                    o, "date", datetime.min.replace(tzinfo=timezone.utc)
-                                ),
+                                key=lambda o: getattr(o, "date", datetime.min.replace(tzinfo=timezone.utc)),
                                 reverse=True,
                             )
                             op = figi_ops[0]
                             price_q = getattr(op, "price", None)
                             if price_q is not None:
                                 from t_tech.invest.utils import quotation_to_decimal
-
                                 exit_price = float(quotation_to_decimal(price_q))
                                 logger.info(
                                     f"_sync_portfolio: exit price for {trade['ticker']} "
@@ -1578,21 +1452,15 @@ class TradingEngine:
                     except Exception as e:
                         logger.debug(f"peak delete failed: {e}")
 
-                    await self._notify(
-                        Notification(
-                            type=NotificationType.TRADE_CLOSED,
-                            title=f"{inferred_reason.replace('_',' ').title()}: {trade['ticker']} {pnl:+.0f} ₽",
-                            data={
-                                **dict(trade),
-                                "exit_price": exit_price,
-                                "pnl": pnl,
-                                "pnl_pct": pnl_pct,
-                                "commission": commission,
-                                "exit_reason": inferred_reason,
-                            },
-                            priority="high",
-                        )
-                    )
+                    await self._notify(Notification(
+                        type=NotificationType.TRADE_CLOSED,
+                        title=f"{inferred_reason.replace('_',' ').title()}: {trade['ticker']} {pnl:+.0f} ₽",
+                        data={**dict(trade), "exit_price": exit_price,
+                              "pnl": pnl, "pnl_pct": pnl_pct,
+                              "commission": commission,
+                              "exit_reason": inferred_reason},
+                        priority="high",
+                    ))
                     logger.info(
                         f"Broker-closed: {trade['ticker']} reason={inferred_reason} "
                         f"P&L={pnl:+.2f} ₽ ({pnl_pct:+.2f}%) "
@@ -1649,42 +1517,40 @@ class TradingEngine:
             return
 
         tickers_figis = [
-            (c["ticker"], c["figi"], c.get("kind", "share")) for c in self._watchlist[:15]
+            (c["ticker"], c["figi"], c.get("kind", "share"))
+            for c in self._watchlist[:15]
         ]
         try:
             model = await self._trainer.train_universal_model(tickers_figis)
             if model and "ml_lightgbm" in self.strategies:
                 self.strategies["ml_lightgbm"].set_model(model)
-                await self._notify(
-                    Notification(
-                        type=NotificationType.MODEL_TRAINED,
-                        title="ML model retrained",
-                        data={
-                            "ticker": "universal",
-                            "accuracy": model.metadata.accuracy if model.metadata else 0,
-                            "f1": model.metadata.f1 if model.metadata else 0,
-                            "samples": model.metadata.train_samples if model.metadata else 0,
-                        },
-                    )
-                )
+                await self._notify(Notification(
+                    type=NotificationType.MODEL_TRAINED,
+                    title="ML model retrained",
+                    data={
+                        "ticker": "universal",
+                        "accuracy": model.metadata.accuracy if model.metadata else 0,
+                        "f1": model.metadata.f1 if model.metadata else 0,
+                        "samples": model.metadata.train_samples if model.metadata else 0,
+                    }
+                ))
         except Exception as e:
             logger.error(f"Retrain error: {e}")
-            await self._notify(
-                Notification(type=NotificationType.ERROR, title=f"Retrain failed: {e}")
-            )
+            await self._notify(Notification(
+                type=NotificationType.ERROR,
+                title=f"Retrain failed: {e}"
+            ))
 
     # ==================== Manual Trading ====================
 
-    async def manual_trade(self, figi: str, ticker: str, lots: int, direction: str) -> dict:
+    async def manual_trade(self, figi: str, ticker: str, lots: int,
+                            direction: str) -> dict:
         """Execute a manual trade from Telegram."""
         # Pass manual_lots so risk manager uses user-specified count (bypasses Kelly)
         approval = await self.risk_manager.approve_trade(
-            figi=figi,
-            ticker=ticker,
-            direction=direction,
+            figi=figi, ticker=ticker, direction=direction,
             confidence=1.0,
-            suggested_stop_pct=2.0,
-            suggested_target_pct=4.0,
+            suggested_stop_pct=2.0, suggested_target_pct=4.0,
             manual_lots=lots,
         )
 
@@ -1692,7 +1558,8 @@ class TradingEngine:
             return {"success": False, "reason": approval.reason}
 
         return await self._execute_trade(
-            figi, ticker, direction, approval.lots, "manual", 1.0, approval
+            figi, ticker, direction, approval.lots,
+            "manual", 1.0, approval
         )
 
     async def close_position(self, figi: str, reason: str = "manual") -> dict:
@@ -1706,20 +1573,13 @@ class TradingEngine:
         lots = trade["lots"]
 
         # Opposite direction to close
-        close_dir = (
-            OrderDirection.ORDER_DIRECTION_SELL
-            if direction == "buy"
-            else OrderDirection.ORDER_DIRECTION_BUY
-        )
-        stop_cancel_dir = (
-            StopOrderDirection.STOP_ORDER_DIRECTION_SELL
-            if direction == "sell"
-            else StopOrderDirection.STOP_ORDER_DIRECTION_BUY
-        )
+        close_dir = OrderDirection.ORDER_DIRECTION_SELL if direction == "buy" \
+                    else OrderDirection.ORDER_DIRECTION_BUY
+        stop_cancel_dir = StopOrderDirection.STOP_ORDER_DIRECTION_SELL if direction == "sell" \
+                          else StopOrderDirection.STOP_ORDER_DIRECTION_BUY
 
         try:
             from utils.helpers import is_moex_open
-
             if not is_moex_open():
                 logger.warning(
                     f"close_position({trade['ticker']}): MOEX is closed right now "
@@ -1769,30 +1629,24 @@ class TradingEngine:
             # Cooldown: no re-entry into this ticker for a while
             self._record_close(figi)
 
-            trade_data = {
-                **dict(trade),
-                "exit_price": exit_price,
-                "pnl": pnl,
-                "pnl_pct": pnl_pct,
-                "commission": commission,
-                "exit_reason": reason,
-            }
+            trade_data = {**dict(trade), "exit_price": exit_price,
+                         "pnl": pnl, "pnl_pct": pnl_pct,
+                         "commission": commission,
+                         "exit_reason": reason}
 
-            await self._notify(
-                Notification(
-                    type=NotificationType.TRADE_CLOSED,
-                    title=f"Closed {trade['ticker']}: {pnl:+.0f} RUB",
-                    data=trade_data,
-                    priority="high",
-                )
-            )
+            await self._notify(Notification(
+                type=NotificationType.TRADE_CLOSED,
+                title=f"Closed {trade['ticker']}: {pnl:+.0f} RUB",
+                data=trade_data, priority="high"
+            ))
 
             logger.info(
                 f"Position closed: {trade['ticker']} "
                 f"P&L={pnl:+.2f} RUB ({pnl_pct:+.2f}%) "
                 f"commission={commission:.2f} RUB"
             )
-            return {"success": True, "pnl": pnl, "pnl_pct": pnl_pct, "commission": commission}
+            return {"success": True, "pnl": pnl, "pnl_pct": pnl_pct,
+                    "commission": commission}
 
         except Exception as e:
             err_str = str(e)
@@ -1809,7 +1663,8 @@ class TradingEngine:
             logger.error(f"Close position error for {figi}: {e}")
             return {"success": False, "reason": str(e)}
 
-    async def _scale_out_position(self, trade: dict, lots: int, ref_price: float) -> bool:
+    async def _scale_out_position(self, trade: dict, lots: int,
+                                   ref_price: float) -> bool:
         """Close ``lots`` of an open trade (partial scale-out) without ending
         the trade row in the DB.  Updates trade.lots and credits a notional
         partial-realised P&L on the daily counter.  Returns True on success.
@@ -1827,11 +1682,8 @@ class TradingEngine:
         figi = trade["figi"]
         ticker = trade["ticker"]
         direction = trade["direction"]
-        close_dir = (
-            OrderDirection.ORDER_DIRECTION_SELL
-            if direction == "buy"
-            else OrderDirection.ORDER_DIRECTION_BUY
-        )
+        close_dir = OrderDirection.ORDER_DIRECTION_SELL if direction == "buy" \
+                    else OrderDirection.ORDER_DIRECTION_BUY
         try:
             await self.broker.post_market_order(figi, lots, close_dir)
             try:
@@ -1850,20 +1702,18 @@ class TradingEngine:
             self.risk_manager.update_daily_pnl(partial_pnl)
             today = datetime.now(timezone.utc).date().isoformat()
             await self.db.upsert_daily_pnl(today, realized_pnl=partial_pnl)
-            await self._notify(
-                Notification(
-                    type=NotificationType.INFO,
-                    title=f"Partial TP {ticker}: {partial_pnl:+.0f} ₽ ({lots} lots)",
-                    data={
-                        "ticker": ticker,
-                        "lots_closed": lots,
-                        "lots_remaining": new_lots,
-                        "fill_price": fill_price,
-                        "partial_pnl": partial_pnl,
-                        "partial_pnl_pct": partial_pnl_pct,
-                    },
-                )
-            )
+            await self._notify(Notification(
+                type=NotificationType.INFO,
+                title=f"Partial TP {ticker}: {partial_pnl:+.0f} ₽ ({lots} lots)",
+                data={
+                    "ticker": ticker,
+                    "lots_closed": lots,
+                    "lots_remaining": new_lots,
+                    "fill_price": fill_price,
+                    "partial_pnl": partial_pnl,
+                    "partial_pnl_pct": partial_pnl_pct,
+                },
+            ))
             logger.info(
                 f"Partial TP filled: {ticker} closed {lots} lots @ {fill_price:.4f} "
                 f"P&L={partial_pnl:+.2f} ₽ ({partial_pnl_pct:+.2f}%); "
@@ -1900,13 +1750,11 @@ class TradingEngine:
         except Exception:
             pass
 
-        await self._notify(
-            Notification(
-                type=NotificationType.INFO,
-                title="Emergency stop executed. Mode: INTERACTIVE",
-                priority="critical",
-            )
-        )
+        await self._notify(Notification(
+            type=NotificationType.INFO,
+            title="Emergency stop executed. Mode: INTERACTIVE",
+            priority="critical"
+        ))
 
     # ==================== Status & Display ====================
 
@@ -1959,15 +1807,9 @@ class TradingEngine:
         # share / bond / etf / fund
         return self.settings.COMMISSION_SHARES_PCT
 
-    def _compute_pnl(
-        self,
-        direction: str,
-        entry_price: float,
-        exit_price: float,
-        lots: int,
-        lot_size: int,
-        instrument_kind: str = "share",
-    ) -> tuple[float, float, float]:
+    def _compute_pnl(self, direction: str, entry_price: float, exit_price: float,
+                      lots: int, lot_size: int,
+                      instrument_kind: str = "share") -> tuple[float, float, float]:
         """P&L net of round-trip broker commission.
 
         Returns (pnl_rub, pnl_pct, commission_rub).
@@ -2008,14 +1850,18 @@ class TradingEngine:
         # Persist asynchronously so a bot restart preserves the cooldown.
         # Fire-and-forget — failure here mustn't block the close path.
         try:
-            asyncio.get_event_loop().create_task(self.db.upsert_cooldown(figi, now.isoformat()))
+            asyncio.get_event_loop().create_task(
+                self.db.upsert_cooldown(figi, now.isoformat())
+            )
         except Exception as e:
             logger.debug(f"Cooldown persist task failed: {e}")
         # Garbage-collect old entries so the dict doesn't grow forever
         cutoff = datetime.now(timezone.utc) - timedelta(
             minutes=self.settings.SAME_TICKER_COOLDOWN_MINUTES * 2
         )
-        self._recent_closes = {k: v for k, v in self._recent_closes.items() if v >= cutoff}
+        self._recent_closes = {
+            k: v for k, v in self._recent_closes.items() if v >= cutoff
+        }
 
     async def _build_watchlist(self, custom_figis: list[str]) -> list[dict]:
         """Build combined long+short watchlist.
@@ -2029,11 +1875,15 @@ class TradingEngine:
         Output is sorted by score desc and length-capped by the original
         screener.top_n — so turning shorts on does NOT halve long throughput.
         """
-        long_wl = await self.screener.scan_universe(custom_figis=custom_figis, direction="long")
+        long_wl = await self.screener.scan_universe(
+            custom_figis=custom_figis, direction="long"
+        )
         if not self.settings.ALLOW_SHORTS:
             return long_wl
 
-        short_wl = await self.screener.scan_universe(custom_figis=custom_figis, direction="short")
+        short_wl = await self.screener.scan_universe(
+            custom_figis=custom_figis, direction="short"
+        )
 
         # Dedupe: keep whichever side scored higher for each FIGI
         merged: dict[str, dict] = {}
@@ -2049,7 +1899,9 @@ class TradingEngine:
 
         long_n = sum(1 for c in capped if c.get("direction") == "long")
         short_n = sum(1 for c in capped if c.get("direction") == "short")
-        logger.info(f"Watchlist built: {long_n} long + {short_n} short = {len(capped)} total")
+        logger.info(
+            f"Watchlist built: {long_n} long + {short_n} short = {len(capped)} total"
+        )
         return capped
 
     async def _cancel_stops_for_figi(self, figi: str) -> int:
