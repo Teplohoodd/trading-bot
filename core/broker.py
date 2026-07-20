@@ -524,6 +524,51 @@ class BrokerClient:
             cursor = resp.next_cursor
         return out
 
+    async def get_max_lots(self, figi: str, price, direction: str = "sell") -> int:
+        """Broker-authoritative max lots for a MARKET order given current free
+        margin (t-tech orders.get_max_lots).  direction 'sell' (short) / 'buy'.
+        Returns the limit, or -1 on error — caller treats -1 as 'no broker cap'
+        so an auxiliary-call failure never blocks a trade."""
+        from decimal import Decimal
+        from t_tech.invest.schemas import GetMaxLotsRequest
+        try:
+            req = GetMaxLotsRequest(
+                account_id=self._account_id, instrument_id=figi,
+                price=decimal_to_quotation(Decimal(str(price))))
+            resp = await self._safe_call(
+                lambda r=req: self._services.orders.get_max_lots(request=r))
+            # total capacity = own holdings (*_limits) + margin (*_margin_limits).
+            # For a futures SHORT with no position, all capacity is in the margin
+            # bucket (sell_limits=0, sell_margin_limits=N).
+            base = getattr(resp, f"{direction}_limits")
+            marg = getattr(resp, f"{direction}_margin_limits")
+            return (int(getattr(base, f"{direction}_max_lots"))
+                    + int(getattr(marg, f"{direction}_max_lots")))
+        except Exception as e:
+            logger.warning(f"get_max_lots failed: {e}")
+            return -1
+
+    async def get_order_commission_rub(self, figi: str, quantity: int,
+                                       direction: str, price) -> float | None:
+        """Pre-trade commission (RUB) for a market order (t-tech
+        orders.get_order_price).  None on error."""
+        from decimal import Decimal
+        from t_tech.invest.schemas import GetOrderPriceRequest
+        try:
+            d = (OrderDirection.ORDER_DIRECTION_SELL if direction == "sell"
+                 else OrderDirection.ORDER_DIRECTION_BUY)
+            req = GetOrderPriceRequest(
+                account_id=self._account_id, instrument_id=figi,
+                price=decimal_to_quotation(Decimal(str(price))),
+                direction=d, quantity=int(quantity))
+            resp = await self._safe_call(
+                lambda r=req: self._services.orders.get_order_price(request=r))
+            if resp.executed_commission_rub:
+                return float(quotation_to_decimal(resp.executed_commission_rub))
+        except Exception as e:
+            logger.warning(f"get_order_price failed: {e}")
+        return None
+
     async def get_accounts(self):
         """Get all accounts."""
         resp = await self._safe_call(

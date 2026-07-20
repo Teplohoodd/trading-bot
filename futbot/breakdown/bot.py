@@ -276,12 +276,22 @@ class BreakdownBot:
         go_per_lot = fill * fut["rpp"] * fut["lot_size"] * fut["risk_rate"]
         lots_go = ((equity * s.BD_MAX_GO_PCT_PER_POS) / go_per_lot
                    if go_per_lot > 0 else lots_risk)
-        lots = int(min(lots_risk, lots_go, s.BD_MAX_LOTS))
-        lots = max(floor, lots)
+        lots = max(floor, int(min(lots_risk, lots_go, s.BD_MAX_LOTS)))
+        # Broker-authoritative margin cap: never request more lots than the
+        # broker will actually let us short right now (replaces trusting our
+        # own ГО×risk_rate estimate).  -1 = call failed → keep our estimate.
+        bmax = await self.broker.get_max_lots(fut["figi"], fill, "sell")
+        capped = ""
+        if bmax == 0:
+            logger.warning(f"[breakdown] {fut['ticker']}: broker max_lots=0 "
+                           f"(no free margin) — skipping entry")
+            return 0
+        if bmax > 0 and bmax < lots:
+            capped = f" broker-cap={bmax}"; lots = bmax
         logger.info(
             f"[breakdown] size {fut['ticker']}: equity={equity:.0f} "
             f"risk/lot={risk_per_lot:.0f} factor={risk_factor:.2f} → "
-            f"risk-cap={lots_risk:.1f} ГО-cap={lots_go:.1f} → {lots} lot(s)")
+            f"risk-cap={lots_risk:.1f} ГО-cap={lots_go:.1f}{capped} → {lots} lot(s)")
         return lots
 
     async def _open_trade(self, stock: str, sig: dict):
@@ -301,6 +311,8 @@ class BreakdownBot:
         pool = bool(sig.get("pool_obstacle"))
         factor = s.BD_POOL_RISK_FACTOR if (s.BD_POOL_SIZING and pool) else 1.0
         lots = await self._size_lots(fut, fut_px, stop_f, risk_factor=factor)
+        if lots <= 0:                       # broker margin cap → cannot size
+            return
         paper = bool(s.BD_PAPER_MODE)
         oid, fill, stop_oid = "paper", fut_px, None
         if not paper:
@@ -355,11 +367,17 @@ class BreakdownBot:
         await self.db.commit()
         risk_rub = (stop_f - fill) * fut["rpp"] * fut["lot_size"] * lots
         path_tag = ("пул на пути → риск ×%.1f" % factor) if pool else "путь чист"
+        # real broker commission (pre-trade estimate) for the notify + records
+        comm = None
+        if not paper:
+            comm = await self.broker.get_order_commission_rub(
+                fut["figi"], lots, "sell", fill)
+        comm_tag = f" | комиссия {comm:.0f}₽" if comm is not None else ""
         await self._notify(
             f"📉 BREAKDOWN SHORT {stock} → {fut['ticker']} ×{lots} @ {fill:.2f}\n"
             f"бар {sig['bar_ret']:+.1f}% объём ×{sig['vol_x']:.0f} | {path_tag}\n"
             f"стоп {stop_f:.2f} | цель {target_f:.2f} (RR {s.BD_RISK_REWARD:.0f}:1) "
-            f"| риск {risk_rub:.0f}₽ | таймаут {s.BD_TIMEOUT_BARS * s.BD_BAR_HOURS}ч")
+            f"| риск {risk_rub:.0f}₽{comm_tag} | таймаут {s.BD_TIMEOUT_BARS * s.BD_BAR_HOURS}ч")
 
     async def _real_exit_price(self, figi: str, since_iso: str) -> float | None:
         """Reconstruct the ACTUAL covering-trade price from operations history.

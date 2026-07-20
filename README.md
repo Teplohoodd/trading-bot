@@ -1,409 +1,198 @@
-# Autonomous Trading Bot — T-Invest + Telegram
+# Autonomous Trading Bot — T-Invest (T-Bank) + Telegram
 
-Автономный торговый робот для Московской биржи через T-Invest API. ML-сигналы (LightGBM с per-asset-class изотонической калибровкой и meta-labelling), академический риск-менеджмент (Kelly + vol-targeting + Kyle-impact), полный цикл управления через Telegram. Работает на акциях и фьючерсах FORTS, лонг и шорт.
+Multi-strategy algorithmic trading bot for the Moscow Exchange (MOEX / FORTS),
+built on the official **t-tech-investments** SDK. A single supervised
+orchestrator runs several independent strategies against one broker account,
+with Telegram control, a Mini App dashboard, and defensive risk management.
 
-> Подробное архитектурное описание с UML-диаграммами — `docs/architecture.tex` (компилируется в PDF через `pdflatex`).
+> ⚠️ **Not investment advice.** This is a personal research project trading real
+> money with leverage (futures). Historical results do not guarantee future
+> results. Use at your own risk.
 
----
+## Contents
+- [Overview](#overview)
+- [Strategies](#strategies)
+- [Breakdown signal](#breakdown-signal)
+- [Risk & sizing](#risk--sizing)
+- [Exits](#exits)
+- [Reliability](#reliability)
+- [Telegram & Mini App](#telegram--mini-app)
+- [Install](#install)
+- [Configuration](#configuration)
+- [Run](#run)
+- [Repo layout](#repo-layout)
 
-## Содержание
+## Overview
 
-1. [Возможности](#возможности)
-2. [Архитектура](#архитектура)
-3. [Структура файлов](#структура-файлов)
-4. [Установка](#установка)
-5. [Конфигурация](#конфигурация)
-6. [Запуск](#запуск)
-7. [Telegram-команды](#telegram-команды)
-8. [Режимы и профили](#режимы-и-профили)
-9. [ML-модель и фичи](#ml-модель-и-фичи)
-10. [Управление рисками](#управление-рисками)
-11. [Логика входа и выхода](#логика-входа-и-выхода)
-12. [Постмортем-фиксы](#постмортем-фиксы)
-13. [База данных](#база-данных)
-14. [Известные ограничения](#известные-ограничения)
-
----
-
-## Возможности
-
-### Торговля
-- **Акции** ММВБ (рублёвые, через `share` instrument kind)
-- **Фьючерсы** FORTS (BR, GZ, GD, SR, RI, MM и др. — отдельный confidence threshold и position-sizer на ГО)
-- **Лонг и шорт** (шорты только на инструменты с `short_enabled_flag=True`, gate-фильтры жёстче)
-- Лимитные ордера (limit_aggressive по умолчанию) с фолбэком на маркет через `LIMIT_ORDER_TIMEOUT`
-- TWAP-исполнение крупных позиций (Almgren-Chriss `optimal_slices`) — включается автоматически при `participation_rate > 5%`
-- Bracket-ордера: SL и TP размещаются как broker-side stop orders, плюс программный fallback в position monitor
-- Частичный take-profit (scale-out 50% при MFE ≥ 1.5×ATR)
-- Trailing stop (активируется при 70% прогресса к TP, отступ 1×ATR)
-
-### ML / аналитика
-- **LightGBM** 3-классовый классификатор (`sell=0 / hold=1 / buy=2`)
-- **Triple-barrier labels** (López de Prado, гл. 3) с горизонтом, выбранным по IC grid-search (h=20 для акций, h=10 для фьючерсов)
-- **Per-asset-class изотоническая калибровка** P(buy)/P(sell) — отдельные калибраторы на акции, ФОРТС-классы (BR/GZ/GD/SR/RI/MM/Currency/Other)
-- **Meta-labelling** — вторичный бинарный классификатор предсказывает корректность направления первичного, итоговая уверенность = √(primary × meta)
-- **35+ фичей**: технические индикаторы (RSI, MACD, BB, ATR, OBV, ADX, Williams %R, Stochastic), фрактальное дифференцирование close-серии (Hurst-stationarity), макро (IMOEX, USDRUB, RGBI), order-book (spread_bps, imbalance), futures-специфичные (days_to_expiry, in_roll_window)
-- **Walk-forward CV с эмбарго** (López de Prado, гл. 7) — 5 фолдов, expanding window
-- **CPCV** (Combinatorial Purged Cross-Validation) опционально
-- **Авто-переобучение** каждые 24 часа с rollback-гейтом по acc/F1
-- **Универсальная модель** на пуле тикеров (n>50k bars) — лучше overfit-stable одно-тикерных
-- **Detect режима** (trending / ranging / high-volatility) — динамические веса стратегий
-
-### Риск-менеджмент
-- **Kelly criterion** (дробный — `KELLY_FRACTION` × confidence × regime_scale)
-- **Vol-targeting** (Frazzini-Pedersen 2014, Moskowitz 2012) — параллельно с Kelly, выбирается min(Kelly, vol-target)
-- **Kyle-Obizhaeva model** для оценки price impact (square-root law)
-- **Glosten-Milgrom spread-фильтр** (`SPREAD_THRESHOLD × median_spread`)
-- **Daily-loss circuit breaker** (`MAX_DAILY_LOSS_PCT`) и **drawdown breaker** (`MAX_DRAWDOWN_PCT`)
-- **StoplossGuard** (freqtrade-pattern) — пауза стороны после N последовательных стоп-лоссов
-- **Long auto-pause** — отключает лонги когда realized Kelly f* < 0 (на основе истории по направлению)
-- **Carry-free cap** для шортов — лимит лотов под порог Тинькофф, чтобы платить 0 carry
-- **Same-ticker cooldown** против whipsaw
-
-### Telegram
-- **Три режима**: `autonomous` (полный авто), `advisory` (бот сигналит, юзер апрувит), `interactive` (только ручные сделки)
-- **Inline-кнопки** для каждой операции
-- Уведомления о signal / entry / exit / circuit-breaker
-- **Heartbeat-watchdog** для polling — `bot.get_me()` пинг каждые 2 мин, force-restart при 3 подряд фейлах
-- Авторизация по chat_id (один пользователь)
-- Команды: `/status`, `/portfolio`, `/pnl`, `/positions`, `/buy`, `/sell`, `/mode`, `/risk`, `/profile`, `/watchlist`, `/retrain`, `/sync`, `/analyze`, `/signals`, `/addticker`, `/removeticker`, `/stop`
-
----
-
-## Архитектура
+The live entry point is **`futbot.orchestrator.main`**. It connects one shared
+broker client + one Telegram session, then runs each enabled strategy as a
+supervised `asyncio` task at its own cadence. If a strategy tick crashes, the
+supervisor logs it and restarts after exponential backoff — one strategy can't
+take down the others.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                          asyncio event loop                              │
-│                                                                          │
-│  ┌────────────────┐    asyncio.Queue    ┌───────────────────────────┐    │
-│  │ TradingEngine  │◄──notifications────►│        TelegramBot        │    │
-│  │                │                     │  Application + Updater    │    │
-│  │  • autonomous_loop                   │  HeartbeatWatchdog       │    │
-│  │  • position_monitor_loop             │  NotificationService     │    │
-│  │  • portfolio_sync_loop               └───────────────────────────┘    │
-│  │  • retrain_scheduler                                                  │
-│  └────────┬───────────┬───────────┬───────────┬──────────┬────────┐      │
-│           │           │           │           │          │        │      │
-│      ┌────▼────┐ ┌────▼────┐ ┌────▼────┐ ┌────▼────┐ ┌──▼─────┐ ┌▼────┐  │
-│      │Screener │ │Strategy │ │  Risk   │ │ML model │ │ Broker │ │ DB  │  │
-│      │ momentum│ │ ML+TA + │ │ Manager │ │LGBM+meta│ │T-Invest│ │SQLite│ │
-│      │  vol +  │ │ regime  │ │ 8 gates │ │+isotonic│ │  gRPC  │ │+WAL │  │
-│      │ liquidity│ │ vote    │ │+sizers  │ │         │ │  + REST│ │     │  │
-│      └─────────┘ └─────────┘ └─────────┘ └─────────┘ └────────┘ └─────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
+orchestrator.main
+├── shared BrokerClient (t-tech gRPC)  ── core/broker.py
+├── shared TelegramNotifier + command server
+├── runner: trend       (pattern breakouts, hourly bars)
+├── runner: breakdown   (volume breakdown shorts, 2h bars)
+├── runner: carry        (Si calendar spread — disabled by default)
+├── monitor loop (5 min): stop/target/timeout + broker reconcile
+└── heartbeat (6h) + Mini-App menu button
 ```
 
-### 4 параллельные корутины внутри `TradingEngine.run()`
+Each strategy has its own SQLite DB (`data/*.db`); the broker and notifier are
+shared. A cross-process **singleton lock** prevents a second orchestrator from
+trading the same account.
 
-| Корутина | Период | Задача |
-|---|---|---|
-| `_autonomous_loop` | `SCAN_INTERVAL_MINUTES` (30/60) | screen → signal → risk gate → execute |
-| `_position_monitor_loop` | `PORTFOLIO_CHECK_MINUTES` (5) | software SL/TP, trailing stop, time exit, signal-reversal exit, partial-TP |
-| `_portfolio_sync_loop` | 1 мин | реконсиляция с брокером — ловит broker-side stop fills, классифицирует exit_reason |
-| `_retrain_scheduler` | `ML_RETRAIN_HOURS` (24) | обучение новой модели → rollback gate → swap |
+### SDK note (important for RU networks)
+Migrated from the abandoned `tinkoff-investments` to the official
+**`t-tech-investments`** (namespace `t_tech.invest`). The new SDK defaults to
+`invest-public-api.tbank.ru`, whose TLS cert chains to the *Russian Trusted Root
+CA* — absent from grpc/certifi trust stores. The broker pins the connection to
+the legacy host with a matching SNI override, so verification succeeds:
 
----
-
-## Структура файлов
-
-```
-trade_claude/
-├── main.py                         # entry point — собирает все компоненты, async event loop
-├── config/
-│   ├── settings.py                 # pydantic Settings (env-aware), все тюнабли
-│   └── instruments.py              # asset-class коды, blacklist, TRADING_PROFILES
-├── core/
-│   ├── broker.py                   # AsyncBroker (gRPC + REST T-Invest), retry с jitter
-│   └── engine.py                   # TradingEngine — 4 цикла, вход/выход/sync
-├── strategy/
-│   ├── base.py                     # Signal, ExitSignal, BaseStrategy
-│   ├── ml_strategy.py              # MLStrategy — обёртка над LGBMModel + meta
-│   ├── technical_strategy.py       # 5 технических правил (MACD cross, BB squeeze, ...)
-│   └── regime.py                   # RegimeDetector — ADX/ATR-based, веса стратегий
-├── ml/
-│   ├── model.py                    # LGBMModel + IsotonicRegression калибраторы
-│   ├── trainer.py                  # ModelTrainer — TB labels, walk-forward CV, rollback
-│   ├── meta_model.py               # Meta-labeller (бинарный классификатор)
-│   └── cpcv.py                     # Combinatorial Purged Cross-Validation
-├── analysis/
-│   ├── features.py                 # build_features (35+ фичей)
-│   ├── indicators.py               # технические индикаторы
-│   ├── frac_diff.py                # фрактальное дифференцирование
-│   ├── macro.py                    # MacroProvider (IMOEX, USDRUB, RGBI)
-│   ├── screener.py                 # Screener — universe scan, top-N momentum
-│   └── reports/                    # YAML-постмортемы + fix_proposal.md
-├── risk/
-│   ├── manager.py                  # RiskManager.approve_trade — 8 гейтов
-│   ├── position_sizer.py           # Kelly + vol-targeting + Kyle impact
-│   ├── execution.py                # ExecutionScheduler — TWAP, Almgren-Chriss
-│   └── spread_monitor.py           # Glosten-Milgrom rolling-median spread
-├── telegram_bot/
-│   ├── bot.py                      # Application + heartbeat watchdog
-│   ├── handlers.py                 # /status /buy /portfolio ... /sync
-│   ├── notifications.py            # NotificationService (asyncio.Queue → bot.send_message)
-│   ├── keyboards.py                # InlineKeyboardMarkup для всех команд
-│   └── formatters.py               # P&L tables, position cards
-├── database/
-│   └── db.py                       # Repository (aiosqlite) — 6 таблиц
-├── utils/
-│   └── helpers.py                  # is_moex_open, now_msk, ...
-├── scripts/
-│   ├── tune_model.py               # GridSearch гипер-параметров + horizon search
-│   ├── train_full.py               # offline-обучение универсальной модели
-│   ├── weekly_postmortem.py        # YAML отчёты + fix_proposal.md
-│   ├── paper_replay.py             # бэктест на исторических свечах
-│   └── replay_with_model.py        # шаг-за-шагом replay для дебага модели
-├── docs/
-│   └── architecture.tex            # LaTeX-документ с UML-диаграммами
-├── data/
-│   ├── trade_bot.db                # SQLite база (signals, trades, daily_pnl, models, ...)
-│   ├── logs/bot.log                # rotating log
-│   └── models/universal_v*.joblib  # сохранённые LGBMModel + калибраторы + meta
-├── requirements.txt
-├── .env                            # секреты + override профиля (см. ниже)
-└── README.md
-```
-
----
-
-## Установка
-
-```bash
-git clone <repo> trade_claude
-cd trade_claude
-python -m venv .venv
-.venv\Scripts\activate              # Windows
-pip install -r requirements.txt
-cp .env.example .env                # затем заполнить токены
-mkdir data data/logs data/models
-```
-
-Зависимости: Python 3.11+, `tinkoff-investments`, `python-telegram-bot[ext]`, `lightgbm`, `pandas`, `numpy`, `scikit-learn`, `pydantic-settings`, `aiosqlite`.
-
----
-
-## Конфигурация
-
-### `.env` (минимум)
-
-```ini
-T_INVEST_TOKEN=t.your_token_here
-T_INVEST_ACCOUNT_ID=2263XXXXXX
-TELEGRAM_BOT_TOKEN=12345:ABC
-TELEGRAM_CHAT_ID=0                  # будет установлен автоматически после первого /start
-
-MODE=autonomous                     # autonomous | advisory | interactive
-ACTIVE_PROFILE=conservative         # conservative | moderate | aggressive
-INCLUDE_FUTURES=true
-ALLOW_SHORTS=true
-```
-
-### Профили (см. `config/instruments.py:TRADING_PROFILES`)
-
-| Параметр | conservative | moderate | aggressive |
-|---|---|---|---|
-| MAX_POSITIONS | 3 | 5 | 8 |
-| MAX_POSITION_PCT | 10 % | 20 % | 30 % |
-| MAX_PORTFOLIO_RISK_PCT | 1 % | 2 % | 3.5 % |
-| MAX_DAILY_LOSS_PCT | 1.5 % | 3 % | 5 % |
-| MAX_DRAWDOWN_PCT | 6 % | 10 % | 15 % |
-| SIGNAL_THRESHOLD | 0.70 | 0.60 | 0.50 |
-| KELLY_FRACTION | 0.15 | 0.25 | 0.40 |
-| SCAN_INTERVAL_MINUTES | 60 | 30 | 15 |
-
-Профиль применяется через Telegram `/profile <name>`.
-
----
-
-## Запуск
-
-```bash
-python main.py
-```
-
-Логи параллельно идут в `stdout` и `data/logs/bot.log`. Для просмотра последних сделок:
-
-```bash
-sqlite3 data/trade_bot.db "SELECT entry_time, ticker, direction, status, pnl_pct, exit_reason FROM trades ORDER BY id DESC LIMIT 20"
-```
-
-Скан-цикл резюмируется одной строкой `Scan summary: candidates=30 {hold: 24, executed: 2, max_positions: 1}` — если бот молчит, эта строка покажет точную причину.
-
----
-
-## Telegram-команды
-
-| Команда | Что делает |
-|---|---|
-| `/start` | привязка chat_id, главное меню |
-| `/status` | текущий режим + market state + позиции + дневной P&L |
-| `/portfolio` | таблица текущих позиций с unrealized P&L |
-| `/pnl` | сводка P&L day / week / month / total |
-| `/positions` | список открытых позиций с inline-кнопками "закрыть" |
-| `/buy <TICKER> [lots]` | ручная покупка с подтверждением |
-| `/sell <TICKER> [lots]` | ручная продажа/шорт |
-| `/mode <name>` | переключить режим работы |
-| `/profile <name>` | сменить торговый профиль |
-| `/risk` | текущие risk-метрики и состояние circuit-breakers |
-| `/watchlist` | топ-30 кандидатов из последнего скана |
-| `/signals` | последние сгенерированные сигналы |
-| `/retrain` | принудительно запустить retrain |
-| `/sync` | реконсиляция с брокером (синхронизация позиций) |
-| `/analyze` | запуск forensic-анализа последней недели |
-| `/addticker <TICKER>` | добавить кастомный тикер в watchlist |
-| `/removeticker <TICKER>` | убрать |
-| `/stop` | emergency stop с двойным подтверждением |
-
----
-
-## Режимы и профили
-
-**`MODE=autonomous`** — бот сам сканирует, открывает и закрывает позиции, юзер только смотрит.
-
-**`MODE=advisory`** — каждый сигнал отправляется в Telegram с inline-кнопками "Approve / Reject", позиция открывается только после нажатия.
-
-**`MODE=interactive`** — авто-скан выключен, торговля только через `/buy /sell`.
-
----
-
-## ML-модель и фичи
-
-### Triple-barrier labels (López de Prado гл. 3)
-
-Цена входа = current close. Барьеры:
-- Profit target (PT) = entry + ATR × `target_mult`
-- Stop loss (SL) = entry − ATR × `stop_mult` (симметрично PT для balanced classes)
-- Time barrier = entry_bar + `TB_MAX_HOLD` (20 для акций, 10 для фьючерсов)
-
-Класс = первый сработавший барьер: PT→buy, SL→sell, time→hold.
-
-### Calibration (per asset class)
-
-После основного обучения LightGBM, на out-of-fold предсказаниях обучается **`IsotonicRegression`** отдельно для P(buy) и P(sell) **на каждый asset class** (shares, BR, GZ, GD, SR, RI, MM, Currency, Other). Калибратор приводит сырые вероятности к фактической base rate.
-
-### Meta-labelling
-
-После основного обучения собираются OOF-предсказания и обучается бинарный классификатор: `meta_label = 1` если первичный prediction оказался корректным. На инференсе:
 ```python
-final_conf = (primary_conf * meta_conf) ** 0.5
-direction = "hold" if final_conf < SIGNAL_THRESHOLD else primary_direction
+AsyncClient(token, target="invest-public-api.tinkoff.ru:443",
+            options=[("grpc.ssl_target_name_override",
+                      "invest-public-api.tinkoff.ru")])
 ```
 
-### Rollback gate
+## Strategies
 
-После обучения новой модели сравниваются `acc` и `f1_weighted` с предыдущей версией на одном holdout. Если новая хуже на ≥0.02 — rollback (модель НЕ заменяется). Изменение горизонта TB пропускает гейт (метрики на разных горизонтах несравнимы).
+| Strategy | Idea | Timeframe | Status |
+|---|---|---|---|
+| **breakdown** | Short a stock (via its future) when it breaks below a *quiet* consolidation on abnormal volume, in a downtrend | 2h bars | LIVE |
+| **trend** | Chart-pattern breakouts (triple-top/bottom etc.) on FORTS futures + a few USD perps | hourly | LIVE |
+| **carry** | Si calendar-spread carry (delta-neutral) | hourly | disabled (chronic laggard) |
 
----
+Signal is computed on the **stock** (cleaner volume structure); execution is on
+the **front-month future** (many shares can't be shorted; futures can). Stop and
+target are scaled from stock-space onto the future, then **re-anchored to the
+actual fill** so slippage on illiquid futures can't distort the 3:1 geometry.
 
-## Управление рисками
+## Breakdown signal
 
-### `RiskManager.approve_trade` — 8 гейтов
+Evaluated on each just-closed 2h bar; all conditions must hold:
 
-1. **Spread filter** — Glosten-Milgrom: текущий spread > `SPREAD_THRESHOLD × median_spread` ⇒ отказ
-2. **Daily-loss breaker** — если `daily_pnl_pct < -MAX_DAILY_LOSS_PCT` ⇒ блок до следующего дня
-3. **Drawdown breaker** — `current_equity < peak_equity × (1 - MAX_DRAWDOWN_PCT)` ⇒ полный stop
-4. **Position concentration** — `MAX_POSITIONS`, `MAX_POSITION_PCT`
-5. **Stoploss guard** — `STOP_GUARD_COUNT` стоп-лоссов на стороне за `STOP_GUARD_LOOKBACK_HOURS` ⇒ пауза
-6. **Long auto-pause** — realized Kelly f* < 0 на лонг-истории ⇒ блок лонгов кроме `confidence ≥ LONG_MIN_CONFIDENCE_WHEN_BAD_EDGE`
-7. **Short permission** — `short_enabled_flag` инструмента + `ALLOW_SHORTS`
-8. **Position sizing** — `min(Kelly_lots, vol_target_lots, max_position_lots)` ≥ 1
+1. **Range break** — `close < min(low)` of the prior 12 bars (~24h).
+2. **Volume confirmation** — `volume ≥ 3× median` of those 12 bars.
+3. **Bar strength** — `close/open − 1 ≤ −1%`.
+4. **Downtrend** — `close < SMA(120)` (~10 trading days).
+5. **Stop sanity** — skip if the stop is farther than 10% from entry.
+6. **Consolidation filter** — the run-up must be *calm*: realized-volatility
+   percentile of the prior bars ≤ 0.40. This distinguishes a coiled-spring
+   breakout from chasing the bottom of an already-volatile waterfall; on a
+   3-year backtest it roughly halves drawdown and turns every year positive.
 
-### Position sizing
+Two market-regime gates block **new** entries (existing positions ride their
+stops):
+- **Panic filter** — skip when the universe's 24h realized volatility is above
+  its 85th percentile (broad panic → bounce-stops).
+- **Per-bar cap** — at most 2 new entries per signal tick (limits correlated
+  cluster losses).
+
+## Risk & sizing
+
+- **Risk-based sizing** — lots ≈ `equity × 1.5% / (stop_distance × rub_per_point
+  × lot_size)`, so each trade risks a fixed fraction of equity regardless of the
+  instrument.
+- **Broker-authoritative cap** — the requested lots are capped by
+  `orders.get_max_lots` (real margin capacity), so an order is never rejected for
+  insufficient margin.
+- **Position caps** — ≤ 25% of equity as initial margin per position, an
+  absolute lot ceiling, ≤ 5 concurrent positions, and a `2× ГО` free-margin
+  buffer before any entry.
+- **Liquidity-pool sizing** — half risk when an intact swing low sits between
+  entry and target (that trade class historically earns half as much per unit
+  risk).
+- **Pre-trade commission** — `orders.get_order_price` reports the exact
+  commission, shown on the entry notification.
+
+## Exits
+
+- **Stop** at the breakout bar's high (a protective exchange stop-order is placed
+  at entry as the hard backstop).
+- **Target** at `entry − 3 × risk` (RR 3:1).
+- **Timeout** after 48 **trading** hours — weekend hours don't count, so a Friday
+  entry isn't dumped Monday before the thesis has trading time to play out.
+- **Proactive reconcile** — every manage cycle checks broker truth; a position
+  already flat at the broker (stop fired / closed externally) is closed in the DB
+  at its **real** covering-trade price (from `get_operations`), not the current
+  market price.
+
+## Reliability
+
+Lessons baked in after real incidents:
+- **Notifier resilience** — a transient timeout at boot no longer permanently
+  disables Telegram alerts; sends retry.
+- **Heartbeat** — an "alive + open positions" message to Telegram every 6h, so a
+  silent death is noticed.
+- **Watchdog** (`scripts/watchdog.ps1`) — restarts the bot if the log goes stale
+  (safe via the singleton lock).
+- **Deferred order failures** — a market-closed rejection defers the close and
+  retries next cycle instead of crash-looping.
+
+## Telegram & Mini App
+
+Commands: `/status` `/open` `/pnl` `/trend` `/stop` (two-step confirm) `/app`
+`/help`.
+
+The **Mini App** (`futbot/webapp/`) is a dark, mobile-style dashboard served by a
+small aiohttp server: open positions with live price + stop/target progress, P&L
+and equity curve, closed-trade feed, an event feed parsed from the log, and 2h
+candlestick charts (lightweight-charts) with the open position's entry/stop/
+target overlaid. `/app` (or the chat menu button) opens it inside Telegram.
+
+## Install
+
+Requires Python 3.11.
+
+```bash
+pip install -r requirements.txt
+# the T-Bank SDK comes from the T-Bank package registry:
+pip install t-tech-investments \
+  --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple
+```
+
+## Configuration
+
+Create `.env` (never commit it):
 
 ```
-kelly_lots     = portfolio_value × KELLY_FRACTION × confidence × regime_scale / (lot_value × stop_distance_pct)
-vol_target_lots = portfolio_value × VOL_TARGET_DAILY_PCT / (daily_vol × lot_value)
-max_lots       = min(kelly, vol_target, MAX_POSITION_PCT × portfolio / lot_value)
+T_INVEST_TOKEN=<your T-Invest API token>
+T_INVEST_ACCOUNT_ID=<account id>
+TELEGRAM_BOT_TOKEN=<bot token>
+TELEGRAM_CHAT_ID=<your chat id>
+# optional, for the Mini App button:
+WEBAPP_URL=https://<your-https-tunnel-or-domain>
 ```
 
-Для шортов дополнительно умножается на `SHORT_POSITION_SCALE` (0.75) и кэпится `SHORT_CARRY_FREE_THRESHOLD_RUB / lot_value`.
+Strategy toggles live in `futbot/orchestrator/config.py`
+(`ORCH_ENABLE_TREND/BREAKDOWN/CARRY`); per-strategy parameters in each
+strategy's `config.py`.
 
-Для фьючерсов используется ГО (initial margin) вместо номинала.
+## Run
 
----
+```bash
+python -m futbot.orchestrator.main      # the trading bot
+python -m futbot.webapp.server          # the Mini App dashboard (port 8088)
+```
 
-## Логика входа и выхода
+## Repo layout
 
-### Вход (`_run_scan_cycle`)
+```
+futbot/
+  orchestrator/   main.py, trend_bot.py, breakdown wiring, commands
+  breakdown/      volume-breakdown short strategy
+  trend/          pattern-breakout strategy
+  carry/          calendar-spread carry (disabled)
+  webapp/         Telegram Mini App (server + static front)
+  scripts/        one-off tools (reconcile, studies, migration)
+core/broker.py    async t-tech gRPC wrapper (rate-limited, reconnecting)
+utils/, risk/, analysis/, ml/   helpers + legacy research engine
+data/             per-strategy SQLite DBs + logs (gitignored)
+```
 
-1. **Cycle-level гейты** (вне per-ticker loop): `is_moex_open`, `SKIP_ENTRY_WEEKDAYS`, `SKIP_ENTRY_HOURS_MSK`
-2. Build watchlist: screener возвращает 30 кандидатов (~20 long + 10 short по моментуму, vol, liquidity)
-3. По каждому кандидату:
-   - skip if уже открыта позиция / в cooldown / max_positions reached
-   - skip if shorts gap-open window (первые 30 мин после открытия)
-   - `_evaluate_instrument` → fetch candles + order_book + macro → каждая стратегия отдаёт Signal → weighted vote
-   - skip if signal direction != candidate thesis
-   - skip if confidence < threshold (для шортов — `SHORT_MIN_CONFIDENCE`)
-   - skip if `now_msk().hour >= SHORT_ENTRY_CUTOFF_HOUR_MSK` для шортов (carry)
-   - `RiskManager.approve_trade` → 8 гейтов
-   - `_execute_trade` → лимит-ордер, ждём fill, ставим SL/TP brackets
-4. **Scan summary**: одна INFO-строка с counters по причинам skip
-
-### Выход (`_position_monitor_loop`, каждые 5 мин)
-
-Для каждой открытой позиции, в порядке:
-
-1. **Hard SL/TP check** (software fallback) — `current_price <= stop_loss` или `>= take_profit` ⇒ market close immediately. Это страховка на случай потери broker-side stop ордера (постмортем 25-апр-2026).
-2. **Trailing stop** — после `TRAILING_STOP_ACTIVATION_FRAC × target_distance` пройдено, обновляется peak; close если `current ≤ peak − TRAILING_STOP_ATR_MULT × ATR`
-3. **Partial TP** — при MFE ≥ `PARTIAL_TP_TRIGGER_ATR × ATR` закрыть `PARTIAL_TP_FRAC` лотов (только если `lots ≥ PARTIAL_TP_MIN_LOTS`)
-4. **Signal-reversal** — стратегия даёт `should_exit()` с reason="signal_reversal", urgency="immediate" ⇒ close (с проверками `MIN_TARGET_PROGRESS_FRAC` и `MIN_EXIT_PROFIT_MULT_COMMISSION`)
-5. **Time exit** — `held > TB_MAX_HOLD` бар И `|pnl_pct| < TIME_EXIT_MAX_PNL_PCT`
-
-### Broker-closed reconciliation (`_sync_portfolio`)
-
-Если позиция исчезла из брокера, но в DB ещё `status='open'`:
-- Получить exit_price из operations history
-- Сравнить с stop_loss / take_profit / partial-tp ⇒ infer reason (`stop_loss` / `take_profit` / `partial_tp` / `external_close`)
-- Записать в DB как closed с правильным reason
-
----
-
-## Постмортем-фиксы (последний месяц)
-
-| Дата | Найдено | Применено |
-|---|---|---|
-| 25-апр | Hard SL/TP не срабатывал в коде, держался только broker-side | Software fallback в `_check_exit_conditions` |
-| 25-апр | Realized Kelly f* = −0.23 (отрицательный edge) | `KELLY_FRACTION 0.5 → 0.15` |
-| 25-апр | Q4 confidence (0.83-0.92) худшая по P&L (инверсия) | `SIGNAL_THRESHOLD 0.65 → 0.72` |
-| 25-апр | Часы 7-9, 11-12 МСК систематически плохи | Введён `SKIP_ENTRY_HOURS_MSK` |
-| 27-апр | `SKIP_ENTRY_WEEKDAYS=[0,4]` блокировал Mon+Fri, +weekend → 3 дня без сделок | `SKIP_ENTRY_WEEKDAYS=[]` (фильтр был спекулятивен) |
-| 27-апр | Все signal rows в DB остались `approved=0` (исполненные тоже) | `update_signal_approval` после risk-check |
-| 27-апр | Per-cycle skip-причины не логировались | INFO `Scan summary` в конце цикла |
-| 30-апр | 47% лосеров касались +0.5% MFE до разворота | `PARTIAL_TP_ENABLED=True`, scale-out 50% при +1.5×ATR |
-| 30-апр | Long realized f* = −0.62 / short f* = +0.57 | `LONG_AUTO_PAUSE`, шорты разрешены, тариф каждой стороны раздельно |
-| 30-апр | WUSH/GTRK 3× стопов подряд | `STOP_GUARD_*` (freqtrade-pattern) |
-| 04-май | Telegram бот переставал отвечать после долгого network-блипа | Heartbeat-watchdog (`bot.get_me()` каждые 2 мин, force-restart при 3 фейлах) |
-| 04-май | `SKIP_ENTRY_HOURS_MSK` имел слабую статистику | Отключён (re-enable при ≥30 trades/hour) |
-
----
-
-## База данных
-
-`data/trade_bot.db`, SQLite + WAL mode. Основные таблицы:
-
-| Таблица | Назначение |
-|---|---|
-| `signals` | Каждый сгенерированный сигнал (ticker, direction, confidence, features-JSON, approved, rejection_reason) |
-| `trades` | Открытые и закрытые позиции (entry/exit_time, prices, lots, pnl, exit_reason, signal_confidence, stop_loss, take_profit) |
-| `daily_pnl` | Дневная сводка (portfolio_value, daily_pnl_pct, peak_equity) для circuit-breakers |
-| `models` | Реестр моделей (version, accuracy, f1, train_samples, tb_max_hold) |
-| `custom_tickers` | Кастомные тикеры из `/addticker` |
-| `position_peaks` | MFE/MAE и peak для trailing stop (восстанавливается при рестарте) |
-
----
-
-## Известные ограничения
-
-- Облигаций и валюты в торговле НЕТ (только акции + FORTS futures). Облигации можно использовать как пассив.
-- Шорты только на share-инструменты с `short_enabled_flag` (требует маржинальный счёт). Фьючерсные шорты бесплатны (нет carry).
-- Heart heartbeat-ping в Telegram-watchdog не отслеживает специфические pollyng-зависания внутри `getUpdates` long-poll, только полное падение API.
-- Калибраторы тренируются только если в OOF есть ≥50 сэмплов на класс — на холодном старте калибровка пустая, модель использует raw probs.
-- `ATR_FILTER_MEDIAN_MULT=0.8` отсекает ~30% кандидатов на низковолатильных днях (по дизайну).
-- `is_moex_open()` использует таблицу праздников MOEX зашитую в `utils.helpers` — обновлять вручную раз в год.
-
----
-
-## Лицензия
-
-Internal / proprietary. Использование на свой риск.
+The `core/engine.py` + `ml/` tree is an earlier monolithic ML-driven bot kept for
+research; the live system is the orchestrator described above.
